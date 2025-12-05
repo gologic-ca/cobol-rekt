@@ -25,7 +25,7 @@ public class IntermediateASTNodeBuilder {
         this.dataRoot = dataRoot;
         this.codeRoot = codeRoot;
         this.symbolTable = symbolTable;
-        nodeService = new FlowNodeServiceImpl(new CobolEntityNavigator(codeRoot), dataRoot, new IncrementingIdProvider());
+        nodeService = new FlowNodeServiceImpl(new CobolEntityNavigator(codeRoot), dataRoot, new IncrementingIdProvider(), null);
     }
 
     public FlowNode build() {

@@ -18,11 +18,13 @@ public class FlowNodeServiceImpl implements FlowNodeService {
     private CobolEntityNavigator navigator;
     private final CobolDataStructure dataStructures;
     private final IdProvider idProvider;
+    private final org.eclipse.lsp.cobol.core.semantics.CopybooksRepository copybooksRepository;
 
-    public FlowNodeServiceImpl(CobolEntityNavigator navigator, CobolDataStructure dataStructures, IdProvider idProvider) {
+    public FlowNodeServiceImpl(CobolEntityNavigator navigator, CobolDataStructure dataStructures, IdProvider idProvider, org.eclipse.lsp.cobol.core.semantics.CopybooksRepository copybooksRepository) {
         this.navigator = navigator;
         this.dataStructures = dataStructures;
         this.idProvider = idProvider;
+        this.copybooksRepository = copybooksRepository;
     }
 
     public FlowNode register(FlowNode flowNode) {
@@ -77,5 +79,10 @@ public class FlowNodeServiceImpl implements FlowNodeService {
     @Override
     public String nextID() {
         return idProvider.next();
+    }
+
+    @Override
+    public Object getCopybooksRepository() {
+        return copybooksRepository;
     }
 }

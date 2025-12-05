@@ -20,12 +20,14 @@ public class WriteRawASTTask implements AnalysisTask {
     private final CobolEntityNavigator navigator;
     private final RawASTOutputConfig rawAstOutputConfig;
     private final ResourceOperations resourceOperations;
+    private final Object copybooksRepository;
 
-    public WriteRawASTTask(CobolEntityNavigator navigator, RawASTOutputConfig rawAstOutputConfig, ResourceOperations resourceOperations) {
+    public WriteRawASTTask(CobolEntityNavigator navigator, RawASTOutputConfig rawAstOutputConfig, ResourceOperations resourceOperations, Object copybooksRepository) {
         this.tree = navigator.getRoot();
         this.navigator = navigator;
         this.rawAstOutputConfig = rawAstOutputConfig;
         this.resourceOperations = resourceOperations;
+        this.copybooksRepository = copybooksRepository;
     }
 
     @Override
@@ -35,7 +37,7 @@ public class WriteRawASTTask implements AnalysisTask {
             LOGGER.info(String.format("AST Output Dir is: %s", rawAstOutputConfig.astOutputDir()));
             resourceOperations.createDirectories(rawAstOutputConfig.astOutputDir());
 //            Files.createDirectories(rawAstOutputConfig.astOutputDir());
-            CobolContextAugmentedTreeNode serialisableAST = new BuildSerialisableASTTask().run(tree, navigator);
+            CobolContextAugmentedTreeNode serialisableAST = new BuildSerialisableASTTask().run(tree, navigator, copybooksRepository);
             rawAstOutputConfig.visualiser().writeCobolAST(serialisableAST, rawAstOutputConfig.cobolParseTreeOutputPath(), false);
             return AnalysisTaskResult.OK(CommandLineAnalysisTask.WRITE_RAW_AST, serialisableAST);
         } catch (IOException e) {

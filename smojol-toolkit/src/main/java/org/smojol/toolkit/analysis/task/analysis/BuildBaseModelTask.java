@@ -33,17 +33,17 @@ public class BuildBaseModelTask implements AnalysisTask {
         try {
             CobolEntityNavigator navigator = pipeline.parse();
             CobolParser.ProcedureDivisionBodyContext rawAST = navigator.procedureDivisionBody(navigator.getRoot());
-            CobolContextAugmentedTreeNode serialisableAST = new BuildSerialisableASTTask().run(rawAST, navigator);
+            CobolContextAugmentedTreeNode serialisableAST = new BuildSerialisableASTTask().run(rawAST, navigator, pipeline.getCopybooksRepository());
             CobolDataStructure dataStructures = pipeline.getDataStructures();
 //            FlowchartBuilder flowcharter = pipeline.flowcharter();
             SmojolSymbolTable symbolTable = new SmojolSymbolTable(dataStructures, new SymbolReferenceBuilder(idProvider));
-            FlowNodeService nodeService = new FlowNodeServiceImpl(navigator, dataStructures, idProvider);
+            FlowNodeService nodeService = new FlowNodeServiceImpl(navigator, dataStructures, idProvider, pipeline.getCopybooksRepository());
             FlowNode flowRoot = new BuildFlowNodesTask(nodeService).run(rawAST);
 //            flowcharter.buildFlowAST(rawAST).buildControlFlow().buildOverlay();
 //            FlowNode flowRoot = flowcharter.getRoot();
             flowRoot.resolve(symbolTable, dataStructures);
             return AnalysisTaskResult.OK("BUILD_SEED_MODEL", new BaseAnalysisModel(navigator, rawAST, dataStructures,
-                    symbolTable, flowRoot, serialisableAST));
+                    symbolTable, flowRoot, serialisableAST, pipeline.getCopybooksRepository()));
         } catch (IOException e) {
             return AnalysisTaskResult.ERROR(e, "BUILD_SEED_MODEL");
         }

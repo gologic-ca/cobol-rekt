@@ -32,7 +32,7 @@ public class CobolTreeVisualiser {
     public void writeCobolAST(CobolContextAugmentedTreeNode serialisableAST, String cobolParseTreeOutputPath, boolean outputTree) {
         if (outputTree) new ListingTreePrinter().print(serialisableAST);
         LOGGER.info(ConsoleColors.green(String.format("Memory usage: %s", Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory())));
-        Gson gson = new GsonBuilder().excludeFieldsWithoutExposeAnnotation().setPrettyPrinting().create();
+        Gson gson = new GsonBuilder().excludeFieldsWithoutExposeAnnotation().serializeNulls().setPrettyPrinting().create();
         try (JsonWriter writer = new JsonWriter(resourceOperations.fileWriter(cobolParseTreeOutputPath))) {
             writer.setIndent("  ");
             gson.toJson(serialisableAST, CobolContextAugmentedTreeNode.class, writer);

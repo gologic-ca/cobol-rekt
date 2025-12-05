@@ -222,4 +222,9 @@ public class GenericProcessingFlowNode implements FlowNode {
     public void linkParentToChild(FlowNodeVisitor visitor, int level) {
         throw new UnsupportedOperationException("Not supported yet.");
     }
+
+    @Override
+    public String copybookUri() {
+        return null;
+    }
 }

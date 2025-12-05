@@ -33,7 +33,7 @@ public class PerParagraph extends FlowchartGenerationStrategy {
         for (CobolParser.ParagraphContext paragraph : allParagraphs) {
             FlowNodeService nodeService = new FlowNodeServiceImpl(new CobolEntityNavigator(paragraph),
                     new Format1DataStructure(0, new UnresolvedReferenceDoNothingStrategy()),
-                    idProvider);
+                    idProvider, null);
             FlowNode flowParagraph = new BuildFlowNodesTask(nodeService).run(paragraph);
             LOGGER.info("Generating flowchart for paragraph: " + paragraph.paragraphDefinitionName().getText());
             new FlowchartBuilder(flowParagraph).build(

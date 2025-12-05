@@ -13,4 +13,5 @@ public interface FlowNodeService {
     CobolDataStructure getDataStructures();
     FlowNode existingNode(ParseTree parseTree);
     String nextID();
+    Object getCopybooksRepository();
 }

@@ -303,4 +303,72 @@ public class CobolFlowNode implements FlowNode {
     public List<? extends ParseTree> getChildren() {
         return ImmutableList.of();
     }
+
+    @Override
+    public String copybookUri() {
+        if (nodeService == null || nodeService.getCopybooksRepository() == null) {
+            return null;
+        }
+        
+        try {
+            org.eclipse.lsp.cobol.core.semantics.CopybooksRepository copybooksRepo = 
+                (org.eclipse.lsp.cobol.core.semantics.CopybooksRepository) nodeService.getCopybooksRepository();
+            
+            // Get the source location of this parse tree node
+            // ParseTree needs to be cast to ParserRuleContext to access getStart()
+            if (!(executionContext instanceof ParserRuleContext)) {
+                return null;
+            }
+            
+            org.antlr.v4.runtime.Token startToken = ((ParserRuleContext) executionContext).getStart();
+            if (startToken == null) {
+                return null;
+            }
+            
+            // Check if this node's location falls within any copybook usage range
+            for (java.util.Map.Entry<String, org.eclipse.lsp4j.Location> entry : copybooksRepo.getUsages().entries()) {
+                org.eclipse.lsp4j.Location copybookLocation = entry.getValue();
+                org.eclipse.lsp4j.Range copybookRange = copybookLocation.getRange();
+                
+                // Check if this node's token is within the copybook range
+                int tokenLine = startToken.getLine() - 1; // LSP is 0-indexed, ANTLR is 1-indexed
+                int tokenColumn = startToken.getCharPositionInLine();
+                
+                if (isWithinRange(tokenLine, tokenColumn, copybookRange)) {
+                    // Found the copybook, now get its URI
+                    String copybookName = entry.getKey();
+                    java.util.Collection<String> copybookUris = copybooksRepo.getDefinitions().get(copybookName);
+                    if (!copybookUris.isEmpty()) {
+                        return copybookUris.iterator().next();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // Silently handle any errors and return null
+        }
+        
+        return null;
+    }
+    
+    private boolean isWithinRange(int line, int column, org.eclipse.lsp4j.Range range) {
+        org.eclipse.lsp4j.Position start = range.getStart();
+        org.eclipse.lsp4j.Position end = range.getEnd();
+        
+        // Check if line is within range
+        if (line < start.getLine() || line > end.getLine()) {
+            return false;
+        }
+        
+        // If on the start line, check column
+        if (line == start.getLine() && column < start.getCharacter()) {
+            return false;
+        }
+        
+        // If on the end line, check column
+        if (line == end.getLine() && column > end.getCharacter()) {
+            return false;
+        }
+        
+        return true;
+    }
 }

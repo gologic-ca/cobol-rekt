@@ -27,7 +27,7 @@ public class WriteFlowASTTask implements AnalysisTask {
     @Override
     public AnalysisTaskResult run() {
         SerialisableASTFlowNode serialisableASTFlowRoot = new SerialiseFlowASTTask().serialisedFlowAST(astRoot);
-        Gson gson = new GsonBuilder().setPrettyPrinting().create();
+        Gson gson = new GsonBuilder().setPrettyPrinting().serializeNulls().create();
         try {
             resourceOperations.createDirectories(flowASTOutputConfig.outputDir());
 //            Files.createDirectories(flowASTOutputConfig.outputDir());

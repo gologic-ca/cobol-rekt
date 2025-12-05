@@ -33,7 +33,7 @@ public class PerSection extends FlowchartGenerationStrategy {
         for (CobolParser.ProcedureSectionContext section : allSections) {
             FlowNodeService nodeService = new FlowNodeServiceImpl(new CobolEntityNavigator(section),
                     new Format1DataStructure(0, new UnresolvedReferenceDoNothingStrategy()),
-                    idProvider);
+                    idProvider, null);
             FlowNode flowSection = new BuildFlowNodesTask(nodeService).run(section);
             LOGGER.info("Generating flowchart for section: " + section.procedureSectionHeader().sectionName());
             new FlowchartBuilder(flowSection).build(

@@ -12,5 +12,6 @@ public record BaseAnalysisModel(CobolEntityNavigator navigator,
                                 CobolDataStructure dataStructures,
                                 SmojolSymbolTable symbolTable,
                                 FlowNode flowRoot,
-                                CobolContextAugmentedTreeNode serialisableAST) {
+                                CobolContextAugmentedTreeNode serialisableAST,
+                                Object copybooksRepository) {
 }

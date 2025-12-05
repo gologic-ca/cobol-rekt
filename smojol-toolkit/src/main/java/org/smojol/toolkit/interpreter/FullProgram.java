@@ -28,7 +28,7 @@ public class FullProgram extends FlowchartGenerationStrategy {
     public void draw(CobolEntityNavigator navigator, ParseTree root, Path dotFileOutputDir, Path imageOutputDir, String programName) throws IOException, InterruptedException {
         FlowNodeService nodeService = new FlowNodeServiceImpl(new CobolEntityNavigator(root),
                 new Format1DataStructure(0, new UnresolvedReferenceDoNothingStrategy()),
-                idProvider);
+                idProvider, null);
         FlowNode flowRoot = new BuildFlowNodesTask(nodeService).run(root);
         new FlowchartBuilder(flowRoot).build(
                 FlowchartGenerationStrategy.outputPath(programName, dotFileOutputDir, "dot"),

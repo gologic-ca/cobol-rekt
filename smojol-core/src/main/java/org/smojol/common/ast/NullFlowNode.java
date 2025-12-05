@@ -203,4 +203,9 @@ public class NullFlowNode implements FlowNode {
     public String id() {
         return "NULL/" + uuid;
     }
+
+    @Override
+    public String copybookUri() {
+        return null;
+    }
 }

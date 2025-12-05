@@ -26,6 +26,12 @@ public class CobolContextAugmentedTreeNode extends SimpleTreeNode {
     @Expose
     @SerializedName("text")
     private final String originalText;
+    @Expose
+    @SerializedName("copybooks")
+    private final List<String> copybooks;
+    @Expose
+    @SerializedName("copybookUri")
+    private final String copybookUri;
 
     @Expose
     @SerializedName("children")
@@ -37,12 +43,22 @@ public class CobolContextAugmentedTreeNode extends SimpleTreeNode {
     private final CobolEntityNavigator navigator;
 
     public CobolContextAugmentedTreeNode(ParseTree astNode, CobolEntityNavigator navigator) {
+        this(astNode, navigator, null, null);
+    }
+
+    public CobolContextAugmentedTreeNode(ParseTree astNode, CobolEntityNavigator navigator, List<String> copybooks, String copybookUri) {
         super(astNode.getClass().getSimpleName());
         this.astNode = astNode;
         this.nodeType = astNode.getClass().getSimpleName();
         this.navigator = navigator;
         this.originalText = withType(astNode, false);
         this.span = createSpan(astNode);
+        this.copybooks = copybooks;
+        this.copybookUri = copybookUri;
+    }
+
+    public CobolContextAugmentedTreeNode(ParseTree astNode, CobolEntityNavigator navigator, List<String> copybooks) {
+        this(astNode, navigator, copybooks, null);
     }
 
     private TextSpan createSpan(ParseTree astNode) {

@@ -60,7 +60,7 @@ public class InterpretTask implements AnalysisTask {
             CobolEntityNavigator navigator = pipeline.parse();
             CobolDataStructure dataStructures = pipeline.getDataStructures();
             ParseTree procedure = navigator.procedureDivisionBody(navigator.getRoot());
-            FlowNode root = new BuildFlowNodesTask(new FlowNodeServiceImpl(navigator, dataStructures, ops.getIdProvider())).run(procedure);
+            FlowNode root = new BuildFlowNodesTask(new FlowNodeServiceImpl(navigator, dataStructures, ops.getIdProvider(), null)).run(procedure);
 //            flowcharter.buildFlowAST(procedure).buildControlFlow().buildOverlay();
 //            FlowNode root = flowcharter.getRoot();
             root.resolve(new SmojolSymbolTable(dataStructures, new SymbolReferenceBuilder(ops.getIdProvider())), dataStructures);
