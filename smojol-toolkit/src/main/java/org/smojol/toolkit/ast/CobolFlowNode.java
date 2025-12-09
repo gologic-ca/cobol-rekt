@@ -305,70 +305,61 @@ public class CobolFlowNode implements FlowNode {
     }
 
     @Override
-    public String copybookUri() {
+    public List<String> copybooks() {
         if (nodeService == null || nodeService.getCopybooksRepository() == null) {
-            return null;
+            return java.util.Collections.emptyList();
         }
         
         try {
             org.eclipse.lsp.cobol.core.semantics.CopybooksRepository copybooksRepo = 
                 (org.eclipse.lsp.cobol.core.semantics.CopybooksRepository) nodeService.getCopybooksRepository();
             
-            // Get the source location of this parse tree node
-            // ParseTree needs to be cast to ParserRuleContext to access getStart()
+            // Get the position range of this node
             if (!(executionContext instanceof ParserRuleContext)) {
-                return null;
+                return java.util.Collections.emptyList();
             }
             
-            org.antlr.v4.runtime.Token startToken = ((ParserRuleContext) executionContext).getStart();
-            if (startToken == null) {
-                return null;
-            }
+            ParserRuleContext context = (ParserRuleContext) executionContext;
+            int nodeStartLine = context.getStart().getLine();
+            int nodeEndLine = context.getStop().getLine();
+            int nodeStartChar = context.getStart().getCharPositionInLine();
+            int nodeEndChar = context.getStop().getCharPositionInLine();
             
-            // Check if this node's location falls within any copybook usage range
-            for (java.util.Map.Entry<String, org.eclipse.lsp4j.Location> entry : copybooksRepo.getUsages().entries()) {
-                org.eclipse.lsp4j.Location copybookLocation = entry.getValue();
-                org.eclipse.lsp4j.Range copybookRange = copybookLocation.getRange();
-                
-                // Check if this node's token is within the copybook range
-                int tokenLine = startToken.getLine() - 1; // LSP is 0-indexed, ANTLR is 1-indexed
-                int tokenColumn = startToken.getCharPositionInLine();
-                
-                if (isWithinRange(tokenLine, tokenColumn, copybookRange)) {
-                    // Found the copybook, now get its URI
-                    String copybookName = entry.getKey();
-                    java.util.Collection<String> copybookUris = copybooksRepo.getDefinitions().get(copybookName);
-                    if (!copybookUris.isEmpty()) {
-                        return copybookUris.iterator().next();
-                    }
-                }
-            }
+            // Get all copybook names
+            java.util.Set<String> allCopybookNames = copybooksRepo.getDefinitions().keySet();
+            com.google.common.collect.Multimap<String, org.eclipse.lsp4j.Location> usages = copybooksRepo.getUsages();
+            
+            // Filter copybooks whose usage location overlaps with this node's range
+            return allCopybookNames.stream()
+                    .filter(copybookName -> {
+                        // Check all usages of this copybook
+                        for (org.eclipse.lsp4j.Location location : usages.get(copybookName)) {
+                            org.eclipse.lsp4j.Range range = location.getRange();
+                            
+                            // LSP is 0-based, parser is 1-based for lines
+                            int usageStartLine = range.getStart().getLine() + 1;
+                            int usageEndLine = range.getEnd().getLine() + 1;
+                            int usageStartChar = range.getStart().getCharacter();
+                            int usageEndChar = range.getEnd().getCharacter();
+                            
+                            // Check for overlap
+                            boolean overlaps = !(usageEndLine < nodeStartLine || 
+                                                usageStartLine > nodeEndLine ||
+                                                (usageEndLine == nodeStartLine && usageEndChar < nodeStartChar) ||
+                                                (usageStartLine == nodeEndLine && usageStartChar > nodeEndChar));
+                            
+                            if (overlaps) {
+                                return true;
+                            }
+                        }
+                        return false;
+                    })
+                    .collect(java.util.stream.Collectors.toList());
         } catch (Exception e) {
-            // Silently handle any errors and return null
+            // Log exception for debugging
+            e.printStackTrace();
         }
         
-        return null;
-    }
-    
-    private boolean isWithinRange(int line, int column, org.eclipse.lsp4j.Range range) {
-        org.eclipse.lsp4j.Position start = range.getStart();
-        org.eclipse.lsp4j.Position end = range.getEnd();
-        
-        // Check if line is within range
-        if (line < start.getLine() || line > end.getLine()) {
-            return false;
-        }
-        
-        // If on the start line, check column
-        if (line == start.getLine() && column < start.getCharacter()) {
-            return false;
-        }
-        
-        // If on the end line, check column
-        if (line == end.getLine() && column > end.getCharacter()) {
-            return false;
-        }
-        
-        return true;
+        return java.util.Collections.emptyList();
     }
 }

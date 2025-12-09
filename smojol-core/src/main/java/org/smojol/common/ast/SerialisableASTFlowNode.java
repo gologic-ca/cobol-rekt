@@ -13,7 +13,7 @@ public class SerialisableASTFlowNode extends SerialisableCFGFlowNode {
     List<SerialisableASTFlowNode> children = new ArrayList<>();
 
     public SerialisableASTFlowNode() {
-        super("ROOT", "ROOT", "ROOT", "ROOT", FlowNodeType.DUMMY, ImmutableList.of(SemanticCategory.CODE_ROOT), null);
+        super("ROOT", "ROOT", "ROOT", "ROOT", FlowNodeType.DUMMY, ImmutableList.of(SemanticCategory.CODE_ROOT), java.util.Collections.emptyList());
     }
 
     public SerialisableASTFlowNode(FlowNode current) {

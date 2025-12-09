@@ -44,4 +44,28 @@ public class TextSpan {
     public String content() {
         return MessageFormat.format("[{0}, {1}] - [{2}, {3}]", startLine, startColumn, stopLine, stopColumn);
     }
+
+    public int startLine() {
+        return startLine;
+    }
+
+    public int stopLine() {
+        return stopLine;
+    }
+
+    public int startColumn() {
+        return startColumn;
+    }
+
+    public int stopColumn() {
+        return stopColumn;
+    }
+
+    public int startIndex() {
+        return startIndex;
+    }
+
+    public int stopIndex() {
+        return stopIndex;
+    }
 }

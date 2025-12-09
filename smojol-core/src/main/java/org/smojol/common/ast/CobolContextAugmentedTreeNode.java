@@ -29,9 +29,6 @@ public class CobolContextAugmentedTreeNode extends SimpleTreeNode {
     @Expose
     @SerializedName("copybooks")
     private final List<String> copybooks;
-    @Expose
-    @SerializedName("copybookUri")
-    private final String copybookUri;
 
     @Expose
     @SerializedName("children")
@@ -46,19 +43,72 @@ public class CobolContextAugmentedTreeNode extends SimpleTreeNode {
         this(astNode, navigator, null, null);
     }
 
-    public CobolContextAugmentedTreeNode(ParseTree astNode, CobolEntityNavigator navigator, List<String> copybooks, String copybookUri) {
+    public CobolContextAugmentedTreeNode(ParseTree astNode, CobolEntityNavigator navigator, List<String> allCopybookNames, Object copybooksRepository) {
         super(astNode.getClass().getSimpleName());
         this.astNode = astNode;
         this.nodeType = astNode.getClass().getSimpleName();
         this.navigator = navigator;
         this.originalText = withType(astNode, false);
         this.span = createSpan(astNode);
-        this.copybooks = copybooks;
-        this.copybookUri = copybookUri;
+        this.copybooks = filterCopybooksByPosition(allCopybookNames, copybooksRepository, this.span);
     }
 
-    public CobolContextAugmentedTreeNode(ParseTree astNode, CobolEntityNavigator navigator, List<String> copybooks) {
-        this(astNode, navigator, copybooks, null);
+    private List<String> filterCopybooksByPosition(List<String> allCopybookNames, Object copybooksRepository, TextSpan nodeSpan) {
+        if (allCopybookNames == null || allCopybookNames.isEmpty() || copybooksRepository == null || nodeSpan == null) {
+            return allCopybookNames != null ? allCopybookNames : java.util.Collections.emptyList();
+        }
+
+        try {
+            // Get the usages Multimap from CopybooksRepository
+            java.lang.reflect.Method getUsagesMethod = copybooksRepository.getClass().getMethod("getUsages");
+            Object usages = getUsagesMethod.invoke(copybooksRepository);
+
+            if (!(usages instanceof com.google.common.collect.Multimap)) {
+                return java.util.Collections.emptyList();
+            }
+
+            com.google.common.collect.Multimap<?, ?> usagesMap = (com.google.common.collect.Multimap<?, ?>) usages;
+
+            // Filter copybooks whose usage location overlaps with this node's span
+            return allCopybookNames.stream()
+                    .filter(copybookName -> {
+                        // Check all usages of this copybook
+                        for (Object entry : usagesMap.entries()) {
+                            if (entry instanceof java.util.Map.Entry) {
+                                java.util.Map.Entry<?, ?> mapEntry = (java.util.Map.Entry<?, ?>) entry;
+                                String key = mapEntry.getKey().toString();
+                                Object value = mapEntry.getValue();
+
+                                // Check if this entry is for our copybook
+                                if (key.contains(copybookName) && value instanceof org.eclipse.lsp4j.Location) {
+                                    org.eclipse.lsp4j.Location location = (org.eclipse.lsp4j.Location) value;
+                                    org.eclipse.lsp4j.Range range = location.getRange();
+
+                                    // Check if the usage location overlaps with this node's span
+                                    int usageStartLine = range.getStart().getLine() + 1; // LSP is 0-based, our span is 1-based
+                                    int usageEndLine = range.getEnd().getLine() + 1;
+                                    int usageStartChar = range.getStart().getCharacter();
+                                    int usageEndChar = range.getEnd().getCharacter();
+
+                                    // Check for overlap
+                                    boolean overlaps = !(usageEndLine < nodeSpan.startLine()
+                                                        || usageStartLine > nodeSpan.stopLine()
+                                                        || (usageEndLine == nodeSpan.startLine() && usageEndChar < nodeSpan.startColumn())
+                                                        || (usageStartLine == nodeSpan.stopLine() && usageStartChar > nodeSpan.stopColumn()));
+
+                                    if (overlaps) {
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                        return false;
+                    })
+                    .collect(java.util.stream.Collectors.toList());
+        } catch (Exception e) {
+            // If reflection fails, return empty list
+            return java.util.Collections.emptyList();
+        }
     }
 
     private TextSpan createSpan(ParseTree astNode) {

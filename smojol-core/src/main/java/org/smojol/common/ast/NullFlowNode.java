@@ -205,7 +205,7 @@ public class NullFlowNode implements FlowNode {
     }
 
     @Override
-    public String copybookUri() {
-        return null;
+    public List<String> copybooks() {
+        return java.util.Collections.emptyList();
     }
 }
