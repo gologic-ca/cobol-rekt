@@ -9,6 +9,7 @@
     <module>smojol-api</module>
     <module>smojol-toolkit</module>
     <module>smojol-core</module>
+    <module>smojol-jcl</module>
     <module>mojo-common</module>
     <module>woof</module>
     <module>che-che4z-lsp-for-cobol-integration/server</module>
