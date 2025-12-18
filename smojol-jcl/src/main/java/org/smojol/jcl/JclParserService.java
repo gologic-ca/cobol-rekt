@@ -31,12 +31,12 @@ public class JclParserService {
     private final Gson gson;
     
     /**
-     * Constructor with default Python executable (python3).
+     * Constructor with default Python executable (python).
      *
      * @throws JclParsingException if Python script cannot be found
      */
     public JclParserService() throws JclParsingException {
-        this("python3");
+        this("python");
     }
     
     /**

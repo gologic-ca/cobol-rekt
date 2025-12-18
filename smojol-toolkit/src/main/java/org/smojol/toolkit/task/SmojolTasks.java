@@ -39,9 +39,10 @@ public class SmojolTasks {
     private final Neo4JDriverBuilder neo4JDriverBuilder;
     private final ParsePipeline pipeline;
     private final NodeSpecBuilder qualifier;
+    private final String jclDirectory;
     private BaseAnalysisModel baseModel;
 
-    public SmojolTasks(ParsePipeline pipeline, SourceConfig sourceConfig, FlowchartOutputWriter flowchartOutputWriter, RawASTOutputConfig rawAstOutputConfig, GraphMLExportConfig graphMLOutputConfig, FlowASTOutputConfig flowASTOutputConfig, CFGOutputConfig cfgOutputConfig, GraphBuildConfig graphBuildConfig, OutputArtifactConfig dataStructuresOutputConfig, OutputArtifactConfig unifiedModelOutputConfig, OutputArtifactConfig similarityOutputConfig, OutputArtifactConfig mermaidOutputConfig, OutputArtifactConfig transpilerModelOutputConfig, OutputArtifactConfig llmOutputConfig, IdProvider idProvider, ResourceOperations resourceOperations, Neo4JDriverBuilder neo4JDriverBuilder) {
+    public SmojolTasks(ParsePipeline pipeline, SourceConfig sourceConfig, FlowchartOutputWriter flowchartOutputWriter, RawASTOutputConfig rawAstOutputConfig, GraphMLExportConfig graphMLOutputConfig, FlowASTOutputConfig flowASTOutputConfig, CFGOutputConfig cfgOutputConfig, GraphBuildConfig graphBuildConfig, OutputArtifactConfig dataStructuresOutputConfig, OutputArtifactConfig unifiedModelOutputConfig, OutputArtifactConfig similarityOutputConfig, OutputArtifactConfig mermaidOutputConfig, OutputArtifactConfig transpilerModelOutputConfig, OutputArtifactConfig llmOutputConfig, IdProvider idProvider, ResourceOperations resourceOperations, Neo4JDriverBuilder neo4JDriverBuilder, String jclDirectory) {
         this.pipeline = pipeline;
         this.sourceConfig = sourceConfig;
         this.flowchartOutputWriter = flowchartOutputWriter;
@@ -59,11 +60,28 @@ public class SmojolTasks {
         this.graphBuildConfig = graphBuildConfig;
         this.resourceOperations = resourceOperations;
         this.neo4JDriverBuilder = neo4JDriverBuilder;
+        this.jclDirectory = jclDirectory;
         qualifier = new NodeSpecBuilder(new NamespaceQualifier("NEW-CODE"));
     }
 
     public List<AnalysisTaskResult> run(List<CommandLineAnalysisTask> commandLineAnalysisTasks) throws IOException {
-        return tasks(commandLineAnalysisTasks).map(AnalysisTask::run).toList();
+        // Convert CommandLineAnalysisTask enums to String names for processing
+        List<String> taskNames = commandLineAnalysisTasks.stream()
+                .map(CommandLineAnalysisTask::name)
+                .toList();
+        return runWithTaskNames(taskNames);
+    }
+
+    /**
+     * Run tasks by their string names. Supports both standard CommandLineAnalysisTask enum values
+     * and custom tasks like WRITE_AGGREGATED_JCL_AST.
+     *
+     * @param taskNames list of task names as strings
+     * @return list of analysis task results
+     * @throws IOException if an I/O error occurs
+     */
+    public List<AnalysisTaskResult> runWithTaskNames(List<String> taskNames) throws IOException {
+        return tasks(taskNames).map(AnalysisTask::run).toList();
     }
 
     public AnalysisTask FLOW_TO_NEO4J = new AnalysisTask() {
@@ -112,6 +130,13 @@ public class SmojolTasks {
         @Override
         public AnalysisTaskResult run() {
             return new WriteRawASTTask(baseModel.navigator(), rawAstOutputConfig, resourceOperations, baseModel.copybooksRepository()).run();
+        }
+    };
+
+    public AnalysisTask WRITE_AGGREGATED_JCL_AST = new AnalysisTask() {
+        @Override
+        public AnalysisTaskResult run() {
+            return new WriteAggregatedJclAstTask(baseModel.navigator(), rawAstOutputConfig, resourceOperations, baseModel.copybooksRepository(), jclDirectory, sourceConfig).run();
         }
     };
 
@@ -187,29 +212,31 @@ public class SmojolTasks {
         }
     };
 
-    private Stream<AnalysisTask> tasks(List<CommandLineAnalysisTask> commandLineAnalysisTasks) {
-        return commandLineAnalysisTasks.stream().map(t -> switch (t) {
-            case BUILD_BASE_ANALYSIS -> BUILD_BASE_ANALYSIS;
-            case FLOW_TO_NEO4J -> FLOW_TO_NEO4J;
-            case FLOW_TO_GRAPHML -> FLOW_TO_GRAPHML;
-            case WRITE_RAW_AST -> WRITE_RAW_AST;
-            case DRAW_FLOWCHART -> DRAW_FLOWCHART;
-            case EXPORT_MERMAID -> EXPORT_MERMAID;
-            case WRITE_FLOW_AST -> WRITE_FLOW_AST;
-            case WRITE_CFG -> WRITE_CFG;
-            case ATTACH_COMMENTS -> ATTACH_COMMENTS;
-            case WRITE_DATA_STRUCTURES -> WRITE_DATA_STRUCTURES;
-            case BUILD_PROGRAM_DEPENDENCIES -> BUILD_PROGRAM_DEPENDENCIES;
-            case EXPORT_UNIFIED_TO_JSON -> EXPORT_UNIFIED_TO_JSON;
-            case COMPARE_CODE -> COMPARE_CODE;
-            case WRITE_LLM_SUMMARY -> WRITE_LLM_SUMMARY;
-            case SUMMARISE_THROUGH_LLM -> SUMMARISE_THROUGH_LLM;
-            case BUILD_TRANSPILER_FLOWGRAPH -> BUILD_TRANSPILER_FLOWGRAPH;
-            case DO_NOTHING -> nullTask(DO_NOTHING);
+    private Stream<AnalysisTask> tasks(List<String> taskNames) {
+        return taskNames.stream().map(taskName -> switch (taskName) {
+            case "BUILD_BASE_ANALYSIS" -> BUILD_BASE_ANALYSIS;
+            case "FLOW_TO_NEO4J" -> FLOW_TO_NEO4J;
+            case "FLOW_TO_GRAPHML" -> FLOW_TO_GRAPHML;
+            case "WRITE_RAW_AST" -> WRITE_RAW_AST;
+            case "WRITE_AGGREGATED_JCL_AST" -> WRITE_AGGREGATED_JCL_AST;
+            case "DRAW_FLOWCHART" -> DRAW_FLOWCHART;
+            case "EXPORT_MERMAID" -> EXPORT_MERMAID;
+            case "WRITE_FLOW_AST" -> WRITE_FLOW_AST;
+            case "WRITE_CFG" -> WRITE_CFG;
+            case "ATTACH_COMMENTS" -> ATTACH_COMMENTS;
+            case "WRITE_DATA_STRUCTURES" -> WRITE_DATA_STRUCTURES;
+            case "BUILD_PROGRAM_DEPENDENCIES" -> BUILD_PROGRAM_DEPENDENCIES;
+            case "EXPORT_UNIFIED_TO_JSON" -> EXPORT_UNIFIED_TO_JSON;
+            case "COMPARE_CODE" -> COMPARE_CODE;
+            case "WRITE_LLM_SUMMARY" -> WRITE_LLM_SUMMARY;
+            case "SUMMARISE_THROUGH_LLM" -> SUMMARISE_THROUGH_LLM;
+            case "BUILD_TRANSPILER_FLOWGRAPH" -> BUILD_TRANSPILER_FLOWGRAPH;
+            case "DO_NOTHING" -> nullTask("DO_NOTHING");
+            default -> throw new IllegalArgumentException("Unknown task: " + taskName);
         });
     }
 
-    private AnalysisTask nullTask(CommandLineAnalysisTask task) {
-        return () -> new AnalysisTaskResultOK(task.name(), baseModel);
+    private AnalysisTask nullTask(String taskName) {
+        return () -> new AnalysisTaskResultOK(taskName, baseModel);
     }
 }

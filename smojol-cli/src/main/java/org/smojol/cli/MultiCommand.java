@@ -15,6 +15,7 @@ import org.smojol.toolkit.flowchart.FlowchartGenerationStrategy;
 import org.smojol.toolkit.interpreter.structure.OccursIgnoringFormat1DataStructureBuilder;
 import com.mojo.algorithms.task.CommandLineAnalysisTask;
 import org.smojol.toolkit.task.TaskRunnerMode;
+import org.smojol.toolkit.task.ExtendedCommandLineAnalysisTask;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -43,7 +44,7 @@ public class MultiCommand implements Callable<Integer> {
 
     @Option(names = {"-c", "--commands"},
             required = true,
-            description = "The commands to run (BUILD_BASE_ANALYSIS, FLOW_TO_NEO4J, FLOW_TO_GRAPHML, WRITE_RAW_AST, DRAW_FLOWCHART, WRITE_FLOW_AST, WRITE_CFG, ATTACH_COMMENTS, WRITE_DATA_STRUCTURES, BUILD_PROGRAM_DEPENDENCIES, COMPARE_CODE, EXPORT_UNIFIED_TO_JSON, EXPORT_MERMAID, SUMMARISE_THROUGH_LLM, WRITE_LLM_SUMMARY)", split = " ")
+            description = "The commands to run (BUILD_BASE_ANALYSIS, FLOW_TO_NEO4J, FLOW_TO_GRAPHML, WRITE_RAW_AST, WRITE_AGGREGATED_JCL_AST, DRAW_FLOWCHART, WRITE_FLOW_AST, WRITE_CFG, ATTACH_COMMENTS, WRITE_DATA_STRUCTURES, BUILD_PROGRAM_DEPENDENCIES, COMPARE_CODE, EXPORT_UNIFIED_TO_JSON, EXPORT_MERMAID, SUMMARISE_THROUGH_LLM, WRITE_LLM_SUMMARY). Supports both base and extended task names.", split = " ")
     private List<String> commands;
 
     @CommandLine.Parameters(index = "0..*",
@@ -85,6 +86,10 @@ public class MultiCommand implements Callable<Integer> {
             description = "Match filename using looser criteria")
     private boolean isPermissiveSearch;
 
+    @Option(names = {"-j", "--jclDir"},
+            description = "JCL directory for aggregated AST output (optional)")
+    private String jclDirectory;
+
     @Override
     public Integer call() throws IOException {
         LoggingConfig.setupLogging();
@@ -100,7 +105,7 @@ public class MultiCommand implements Callable<Integer> {
             return validationResult ? 0 : 1;
         }
 
-        CodeTaskRunner taskRunner = new CodeTaskRunner(sourceDir, reportRootDir, copyBookPaths, dialectJarPath, LanguageDialect.dialect(dialect), FlowchartGenerationStrategy.strategy(flowchartGenerationStrategy, flowchartOutputFormat), new UUIDProvider(), new OccursIgnoringFormat1DataStructureBuilder(), programSearch, new LocalFilesystemOperations());
+        CodeTaskRunner taskRunner = new CodeTaskRunner(sourceDir, reportRootDir, copyBookPaths, dialectJarPath, LanguageDialect.dialect(dialect), FlowchartGenerationStrategy.strategy(flowchartGenerationStrategy, flowchartOutputFormat), new UUIDProvider(), new OccursIgnoringFormat1DataStructureBuilder(), programSearch, new LocalFilesystemOperations(), jclDirectory);
         copyBookPaths.forEach(cpp -> LOGGER.info(cpp.getAbsolutePath()));
         Map<String, List<AnalysisTaskResult>> runResults = taskRunner.runForPrograms(toGraphTasks(commands), programNames, TaskRunnerMode.PRODUCTION_MODE);
         return processResults(runResults);
@@ -121,7 +126,25 @@ public class MultiCommand implements Callable<Integer> {
                 + " -> " + (e.isSuccess() ? ConsoleColors.green(e.toString()) : ConsoleColors.red(e.toString()))).toList()) + "\n";
     }
 
-    private List<CommandLineAnalysisTask> toGraphTasks(List<String> commands) {
-        return commands.stream().map(CommandLineAnalysisTask::valueOf).toList();
+    private List<String> toGraphTasks(List<String> commands) {
+        return commands.stream()
+                .map(cmd -> {
+                    try {
+                        // Try to validate as ExtendedCommandLineAnalysisTask (supports new custom tasks)
+                        ExtendedCommandLineAnalysisTask.valueOf(cmd);
+                        return cmd; // Return the string name directly
+                    } catch (IllegalArgumentException e) {
+                        // Try to validate against base CommandLineAnalysisTask for compatibility
+                        try {
+                            CommandLineAnalysisTask.valueOf(cmd);
+                            return cmd; // Return the string name directly
+                        } catch (IllegalArgumentException ex) {
+                            LOGGER.warning("Unknown task: " + cmd);
+                            return null;
+                        }
+                    }
+                })
+                .filter(t -> t != null)
+                .toList();
     }
 }
