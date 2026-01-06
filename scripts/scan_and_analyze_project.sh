@@ -4,20 +4,29 @@
 # scan_and_analyze_project.sh
 # 
 # Orchestrates complete project analysis pipeline:
-# 1. Scans directory structure (CBL, JCL, CPY files)
-# 2. Creates CBL <-> JCL mappings
+# 1. Scans directory structure (CBL, JCL, CPY files) - supports modular projects
+# 2. Creates CBL <-> JCL mappings (optional, AST generated even without JCL)
 # 3. Generates aggregated ASTs for all programs
 # 4. Builds dependency graph from ASTs and JCL relationships
 #
 # Usage:
+#   bash scripts/scan_and_analyze_project.sh <root_dir> [output_dir] [options]
 #   bash scripts/scan_and_analyze_project.sh <cobol_dir> <jcl_dir> <cpy_dir> [output_dir] [options]
+#
+# Modes:
+#   • MODULAR:  Supports app-*/cbl/, app-*/jcl/, app-*/cpy/ structure
+#   • FLAT:     Supports separate cbl/, jcl/, cpy/ directories (legacy)
 #
 # Options:
 #   -g, --graph       Generate dependency graphs (JSON + SVG) - disabled by default
+#   -m, --metrics     Generate performance metrics report - disabled by default
 #
 # Example:
-#   bash scripts/scan_and_analyze_project.sh app/cbl app/jcl app/cpy ./out
-#   bash scripts/scan_and_analyze_project.sh app/cbl app/jcl app/cpy ./out -g
+#   # Modular structure (auto-detect)
+#   bash scripts/scan_and_analyze_project.sh /path/to/aws-mainframe ./out
+#
+#   # Flat structure
+#   bash scripts/scan_and_analyze_project.sh app/cbl app/jcl app/cpy ./out -g -m
 ################################################################################
 
 # Colors
@@ -32,17 +41,85 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # Arguments
-COBOL_DIR="$1"
-JCL_DIR="$2"
-CPY_DIR="$3"
-OUTPUT_DIR="${4:-./out}"
+ROOT_DIR="$1"
+OUTPUT_DIR=""
+COBOL_DIR=""
+JCL_DIR=""
+CPY_DIR=""
+
+# Detect mode: modular or flat
+# Modular: app-module1/cbl, app-module1/jcl, app-module1/cpy
+# Flat: cbl/, jcl/, cpy/ directories
+if [[ -z "$ROOT_DIR" ]]; then
+    echo -e "${RED}ERROR: Missing root directory${NC}"
+    exit 1
+fi
+
+# Check if this is a flat structure (all 3 different args provided AND they're actual cbl/jcl/cpy dirs)
+if [[ -n "$2" ]] && [[ -n "$3" ]] && [[ ! "$2" =~ ^- ]] && [[ ! "$3" =~ ^- ]] && \
+   [[ "$1" != "$2" || "$2" != "$3" ]]; then
+    # Arguments are different: probably cbl_dir, jcl_dir, cpy_dir
+    # Verify they contain the expected files
+    cbl_in_arg1=$(find "$1" -maxdepth 1 -name "*.cbl" -type f 2>/dev/null | wc -l)
+    jcl_in_arg2=$(find "$2" -maxdepth 1 -name "*.jcl" -type f 2>/dev/null | wc -l)
+    cpy_in_arg3=$(find "$3" -maxdepth 1 -name "*.cpy" -type f 2>/dev/null | wc -l)
+    
+    if [[ $cbl_in_arg1 -gt 0 ]] || [[ $jcl_in_arg2 -gt 0 ]] || [[ $cpy_in_arg3 -gt 0 ]]; then
+        # FLAT MODE: explicit cbl, jcl, cpy directories
+        COBOL_DIR="$1"
+        JCL_DIR="$2"
+        CPY_DIR="$3"
+        OUTPUT_DIR="${4:-./out}"
+        MODE="FLAT"
+    else
+        # Arguments are different but don't look like cbl/jcl/cpy dirs
+        # Fall back to MODULAR
+        COBOL_DIR="$1"
+        JCL_DIR="$1"
+        CPY_DIR="$1"
+        OUTPUT_DIR="${2:-./out}"
+        MODE="MODULAR"
+    fi
+else
+    # Only 1 argument or identical arguments: MODULAR MODE
+    COBOL_DIR="$1"
+    JCL_DIR="$1"
+    CPY_DIR="$1"
+    OUTPUT_DIR="${2:-./out}"
+    MODE="MODULAR"
+    
+    # If 3 identical args and a 4th arg, use that as output
+    if [[ -n "$4" ]] && [[ ! "$4" =~ ^- ]]; then
+        OUTPUT_DIR="$4"
+    fi
+fi
 
 # Parse optional flags (disabled by default)
 GENERATE_GRAPHS=false
-for arg in "${@:5}"; do
+GENERATE_METRICS=false
+
+# Determine which argument to start parsing flags from
+if [[ "$MODE" == "FLAT" ]]; then
+    START_ARG=5  # cbl_dir jcl_dir cpy_dir output_dir [flags...]
+else
+    # MODULAR: check if arg 3 is the output dir (then flags start at arg 4)
+    # or if arg 3 is a flag (then flags start at arg 3)
+    if [[ -n "$3" ]] && [[ "$3" =~ ^- ]]; then
+        START_ARG=3
+    elif [[ -n "$4" ]] && [[ "$4" =~ ^- ]]; then
+        START_ARG=4
+    else
+        START_ARG=5  # Fallback for edge cases
+    fi
+fi
+
+for arg in "${@:$START_ARG}"; do
     case "$arg" in
         -g|--graph)
             GENERATE_GRAPHS=true
+            ;;
+        -m|--metrics)
+            GENERATE_METRICS=true
             ;;
     esac
 done
@@ -64,19 +141,38 @@ echo ""
 # ============================================================================
 
 echo -e "${BLUE}[Step 1/4] Scanning project structure${NC}"
-echo "  Source:     $COBOL_DIR"
-echo "  JCL:        $JCL_DIR"
-echo "  Copybooks:  $CPY_DIR"
+echo "  Mode:       $MODE"
+echo "  Root:       $COBOL_DIR"
 echo "  Output:     $OUTPUT_DIR"
 echo ""
 
-CBL_FILES=$(find "$COBOL_DIR" -name "*.cbl" -type f)
-JCL_FILES=$(find "$JCL_DIR" -name "*.jcl" -type f)
-CPY_FILES=$(find "$CPY_DIR" -name "*.cpy" -type f)
+# Find all CBL files with their module context
+declare -A CBL_FILES_MAP  # Map: CBL_PATH -> MODULE_PATH
+declare -A CBL_MODULE_MAP # Map: CBL_NAME -> MODULE_PATH
 
-CBL_COUNT=$(echo "$CBL_FILES" | grep -v '^$' | wc -l)
-JCL_COUNT=$(echo "$JCL_FILES" | grep -v '^$' | wc -l)
-CPY_COUNT=$(echo "$CPY_FILES" | grep -v '^$' | wc -l)
+if [[ "$MODE" == "MODULAR" ]]; then
+    # Find all CBL files in modular structure (app-*/cbl/, cbl/)
+    for cbl_file in $(find "$COBOL_DIR" -path "*/cbl/*.cbl" -type f); do
+        cbl_name=$(basename "$cbl_file" .cbl)
+        # Extract module path (e.g., /path/to/app-module1 from /path/to/app-module1/cbl/file.cbl)
+        module_path=$(echo "$cbl_file" | sed 's|/cbl/[^/]*$||')
+        CBL_FILES_MAP["$cbl_file"]="$module_path"
+        CBL_MODULE_MAP["$cbl_name"]="$module_path"
+    done
+else
+    # Find all CBL files in flat structure
+    for cbl_file in $(find "$COBOL_DIR" -maxdepth 1 -name "*.cbl" -type f); do
+        cbl_name=$(basename "$cbl_file" .cbl)
+        CBL_FILES_MAP["$cbl_file"]="$COBOL_DIR"
+        CBL_MODULE_MAP["$cbl_name"]="$COBOL_DIR"
+    done
+fi
+
+CBL_COUNT=${#CBL_FILES_MAP[@]}
+
+# Count JCL and CPY files
+JCL_COUNT=$(find "$JCL_DIR" -name "*.jcl" -type f 2>/dev/null | wc -l)
+CPY_COUNT=$(find "$CPY_DIR" -name "*.cpy" -type f 2>/dev/null | wc -l)
 
 echo "  Found: $CBL_COUNT CBL files, $JCL_COUNT JCL files, $CPY_COUNT copybooks"
 echo ""
@@ -162,6 +258,9 @@ AST_COUNT=0
 AST_START_TIME=$(date +%s%N)  # Nanoseconds for better precision
 TOTAL_LOC=0
 
+# Per-file metrics array
+declare -a FILE_METRICS  # Array to store metrics for each file
+
 # Load JCL-CBL mappings from Step 2
 declare -A JCL_MAPPINGS
 if [[ -f "$MAPPINGS_FILE" ]]; then
@@ -224,25 +323,88 @@ if [[ -f "$JAR_PATH" ]] && command -v java &>/dev/null; then
     fi
     
     # Use smojol-cli to generate proper ASTs with WRITE_AGGREGATED_JCL_AST
-    for cbl_file in $CBL_FILES; do
+    for cbl_file in "${!CBL_FILES_MAP[@]}"; do
         if [[ ! -f "$cbl_file" ]]; then continue; fi
         
         cbl_name=$(basename "$cbl_file" .cbl)
         cbl_name_upper=$(echo "$cbl_name" | tr '[:lower:]' '[:upper:]')
+        module_path="${CBL_FILES_MAP[$cbl_file]}"
         
         # Count lines of code for this file
         file_loc=$(wc -l < "$cbl_file" 2>/dev/null || echo 0)
         ((TOTAL_LOC += file_loc))
         
-        # Get JCL files for this program from Step 2 mappings
+        # Get file size in bytes
+        file_size=$(stat -f%z "$cbl_file" 2>/dev/null || stat -c%s "$cbl_file" 2>/dev/null || echo 0)
+        
+        # Start timing for this file
+        FILE_START=$(date +%s%N)
+        
+        # Step 1: Find copybooks for this file
+        # Priority: module's cpy/ > global cpy/
+        CPY_SEARCH_DIR="$CPY_DIR"
+        TEMP_CPY_DIR=""
+        
+        if [[ "$MODE" == "MODULAR" ]]; then
+            # Check for cpy directory in the same module
+            MODULE_CPY_DIR="$module_path/cpy"
+            if [[ -d "$MODULE_CPY_DIR" ]]; then
+                module_cpy_count=$(find "$MODULE_CPY_DIR" -name "*.cpy" -type f 2>/dev/null | wc -l)
+                
+                if [[ $module_cpy_count -gt 0 ]]; then
+                    # Use module's copybooks + global copybooks
+                    TEMP_CPY_DIR=$(mktemp -d)
+                    
+                    # Copy module's copybooks
+                    find "$MODULE_CPY_DIR" -name "*.cpy" -type f -exec cp {} "$TEMP_CPY_DIR/" \; 2>/dev/null
+                    
+                    # Copy global copybooks (to have access to shared copybooks)
+                    find "$CPY_DIR" -name "*.cpy" -type f -exec cp {} "$TEMP_CPY_DIR/" \; 2>/dev/null
+                    
+                    CPY_SEARCH_DIR="$TEMP_CPY_DIR"
+                fi
+            fi
+        fi
+        
+        # If still no copybooks found, aggregate all available
+        if [[ -z "$TEMP_CPY_DIR" ]]; then
+            cpy_count=$(find "$CPY_SEARCH_DIR" -maxdepth 1 -name "*.cpy" -type f 2>/dev/null | wc -l)
+            
+            if [[ $cpy_count -eq 0 ]]; then
+                total_cpy=$(find "$CPY_DIR" -name "*.cpy" -type f 2>/dev/null | wc -l)
+                if [[ $total_cpy -gt 0 ]]; then
+                    TEMP_CPY_DIR=$(mktemp -d)
+                    find "$CPY_DIR" -name "*.cpy" -type f -exec cp {} "$TEMP_CPY_DIR/" \; 2>/dev/null
+                    CPY_SEARCH_DIR="$TEMP_CPY_DIR"
+                fi
+            fi
+        fi
+        
+        # Step 2: Find JCL for this file (optional)
+        # Priority: module's jcl/ > mappings > global jcl/
         PROGRAM_JCL_DIR="$JCL_DIR"
         TEMP_PROGRAM_JCL_DIR=""
+        JCL_FOUND=0
         
-        if [[ -n "${JCL_MAPPINGS[$cbl_name_upper]}" ]]; then
+        if [[ "$MODE" == "MODULAR" ]]; then
+            MODULE_JCL_DIR="$module_path/jcl"
+            if [[ -d "$MODULE_JCL_DIR" ]]; then
+                # Check for matching JCL file in module
+                matching_jcl=$(find "$MODULE_JCL_DIR" -iname "*$cbl_name*" -name "*.jcl" -type f 2>/dev/null | head -1)
+                if [[ -f "$matching_jcl" ]]; then
+                    TEMP_PROGRAM_JCL_DIR=$(mktemp -d)
+                    cp "$matching_jcl" "$TEMP_PROGRAM_JCL_DIR/" 2>/dev/null
+                    PROGRAM_JCL_DIR="$TEMP_PROGRAM_JCL_DIR"
+                    JCL_FOUND=1
+                fi
+            fi
+        fi
+        
+        # If no module JCL, check global mappings
+        if [[ $JCL_FOUND -eq 0 ]] && [[ -n "${JCL_MAPPINGS[$cbl_name_upper]}" ]]; then
             TEMP_PROGRAM_JCL_DIR=$(mktemp -d)
             IFS='|' read -ra jcl_files <<< "${JCL_MAPPINGS[$cbl_name_upper]}"
             
-            JCL_FOUND=0
             for jcl_file_path in "${jcl_files[@]}"; do
                 full_jcl_path="$JCL_DIR/$jcl_file_path"
                 
@@ -262,30 +424,46 @@ if [[ -f "$JAR_PATH" ]] && command -v java &>/dev/null; then
             fi
         fi
         
-        # Generate aggregated AST with correct JCL context
+        # Step 3: Generate AST (with or without JCL)
+        # Use the module root as source for modular, or cbl_dir for flat
+        if [[ "$MODE" == "MODULAR" ]]; then
+            CBL_SOURCE_DIR="$module_path"
+        else
+            CBL_SOURCE_DIR="$(dirname "$cbl_file")"
+        fi
+        
+        ERROR_LOG=$(mktemp)
         if java -jar "$JAR_PATH" run \
             -c WRITE_AGGREGATED_JCL_AST \
             -j "$PROGRAM_JCL_DIR" \
-            -s "$COBOL_DIR" \
+            -s "$CBL_SOURCE_DIR" \
             -cp "$CPY_SEARCH_DIR" \
             -r "$REPORT_DIR" \
-            "$cbl_name.cbl" >/dev/null 2>&1; then
+            "$cbl_name.cbl" > "$ERROR_LOG" 2>&1; then
             ((AST_COUNT++))
+            FILE_STATUS="✓"
+            rm "$ERROR_LOG"
+        else
+            FILE_STATUS="✗"
+            # Store error details for later inspection if metrics enabled
+            # ERROR_DETAILS=$(head -1 "$ERROR_LOG" 2>/dev/null)
+            rm "$ERROR_LOG"
         fi
         
-        # Clean up temporary JCL directory for this program
-        if [[ -n "$TEMP_PROGRAM_JCL_DIR" && -d "$TEMP_PROGRAM_JCL_DIR" ]]; then
-            rm -rf "$TEMP_PROGRAM_JCL_DIR"
-        fi
+        # End timing for this file
+        FILE_END=$(date +%s%N)
+        FILE_DURATION_MS=$(( (FILE_END - FILE_START) / 1000000 ))
+        
+        # Store metrics for later reporting
+        FILE_METRICS+=("$cbl_name|$file_loc|$file_size|$FILE_DURATION_MS|$FILE_STATUS")
+        
+        # Clean up temporary directories
+        [[ -n "$TEMP_PROGRAM_JCL_DIR" && -d "$TEMP_PROGRAM_JCL_DIR" ]] && rm -rf "$TEMP_PROGRAM_JCL_DIR"
+        [[ -n "$TEMP_CPY_DIR" && -d "$TEMP_CPY_DIR" ]] && rm -rf "$TEMP_CPY_DIR"
     done
-    
-    # Clean up temporary copybook directory if created
-    if [[ -n "$TEMP_CPY_DIR" && -d "$TEMP_CPY_DIR" ]]; then
-        rm -rf "$TEMP_CPY_DIR"
-    fi
 else
     # Count lines of code even for fallback
-    for cbl_file in $CBL_FILES; do
+    for cbl_file in "${!CBL_FILES_MAP[@]}"; do
         file_loc=$(wc -l < "$cbl_file" 2>/dev/null || echo 0)
         ((TOTAL_LOC += file_loc))
     done
@@ -299,10 +477,18 @@ else
     fi
     echo "  Generating minimal AST structure as fallback"
     
-    for cbl_file in $CBL_FILES; do
+    for cbl_file in "${!CBL_FILES_MAP[@]}"; do
         if [[ ! -f "$cbl_file" ]]; then continue; fi
         
         cbl_name=$(basename "$cbl_file" .cbl)
+        file_loc=$(wc -l < "$cbl_file" 2>/dev/null || echo 0)
+        file_size=$(stat -f%z "$cbl_file" 2>/dev/null || stat -c%s "$cbl_file" 2>/dev/null || echo 0)
+        
+        # Timing
+        FILE_START=$(date +%s%N)
+        FILE_END=$(date +%s%N)
+        FILE_DURATION_MS=$(( (FILE_END - FILE_START) / 1000000 ))
+        
         ast_dir="$REPORT_DIR/$cbl_name.cbl.report/ast/aggregated"
         mkdir -p "$ast_dir"
         
@@ -323,10 +509,98 @@ else
 }
 EOF
         ((AST_COUNT++))
+        FILE_METRICS+=("$cbl_name|$file_loc|$file_size|$FILE_DURATION_MS|✓")
     done
 fi
 
 echo "  Generated: $AST_COUNT aggregated AST files"
+echo ""
+
+# Calculate timing BEFORE metrics generation
+AST_END_TIME=$(date +%s%N)
+AST_DURATION_SEC=$(( (AST_END_TIME - AST_START_TIME) / 1000000000 ))
+AST_MINUTES=$((AST_DURATION_SEC / 60))
+AST_SECONDS=$((AST_DURATION_SEC % 60))
+
+# ============================================================================
+# GENERATE PERFORMANCE METRICS REPORT (OPTIONAL)
+# ============================================================================
+
+METRICS_FILE="$OUTPUT_DIR/performance-metrics.txt"
+METRICS_JSON="$OUTPUT_DIR/performance-metrics.json"
+
+if [[ "$GENERATE_METRICS" == "true" ]]; then
+    # Generate text metrics file
+    {
+        echo "COBOL AST Generation - Performance Metrics Report"
+        echo "=================================================="
+        echo ""
+        echo "Per-File Metrics:"
+        echo ""
+        echo "  File Name              LOC    Size      Time(ms)  Status"
+        echo "  ────────────────────────────────────────────────────────"
+        
+        for metric in "${FILE_METRICS[@]}"; do
+            IFS='|' read -r fname loc size time status <<< "$metric"
+            printf "  %-24s %5d  %7d   %8d   %s\n" "$fname" "$loc" "$size" "$time" "$status"
+        done
+        
+        echo ""
+        echo "Summary Metrics:"
+        echo "  • Total files processed:  $AST_COUNT"
+        echo "  • Total LOC:              $TOTAL_LOC"
+        echo "  • Total execution time:   ${AST_MINUTES}m ${AST_SECONDS}s ($AST_DURATION_SEC seconds)"
+        
+        if [[ $TOTAL_LOC -gt 0 ]]; then
+            AVG_TIME_PER_LOC=$((AST_DURATION_SEC * 1000 / TOTAL_LOC))
+            PROCESSING_RATE=$((TOTAL_LOC / (AST_DURATION_SEC + 1)))
+            echo "  • Time per 1000 LOC:      ~${AVG_TIME_PER_LOC}ms"
+            echo "  • Processing rate:        ~${PROCESSING_RATE} LOC/sec"
+        fi
+        echo ""
+        echo "Generated at: $(date)"
+    } > "$METRICS_FILE"
+
+    # Generate metrics file only if enabled
+
+    {
+        echo "{"
+        echo '  "metrics": ['
+        
+        FIRST=true
+        for metric in "${FILE_METRICS[@]}"; do
+            IFS='|' read -r fname loc size time status <<< "$metric"
+            
+            if [[ "$FIRST" == "true" ]]; then
+                FIRST=false
+            else
+                echo ","
+            fi
+            
+            printf '    {"file": "%s", "loc": %d, "bytes": %d, "time_ms": %d, "status": "%s"}' \
+                   "$fname" "$loc" "$size" "$time" "$status"
+        done
+        
+        echo ""
+        echo "  ],"
+        echo "  \"summary\": {"
+        echo "    \"total_files\": $AST_COUNT,"
+        echo "    \"total_loc\": $TOTAL_LOC,"
+        echo "    \"total_time_seconds\": $AST_DURATION_SEC,"
+        
+        if [[ $TOTAL_LOC -gt 0 ]]; then
+            AVG_TIME_PER_LOC=$((AST_DURATION_SEC * 1000 / TOTAL_LOC))
+            PROCESSING_RATE=$((TOTAL_LOC / (AST_DURATION_SEC + 1)))
+            echo "    \"avg_time_per_1000_loc_ms\": $AVG_TIME_PER_LOC,"
+            echo "    \"processing_rate_loc_per_sec\": $PROCESSING_RATE,"
+        fi
+        
+        echo "    \"timestamp\": \"$(date)\""
+        echo "  }"
+        echo "}"
+    } > "$METRICS_JSON"
+fi
+
 echo ""
 
 # ============================================================================
@@ -406,24 +680,45 @@ echo -e "${BLUE}║            Analysis Complete                         ║${NC
 echo -e "${BLUE}╚═══════════════════════════════════════════════════════╝${NC}"
 echo ""
 
-# Calculate timing
-AST_END_TIME=$(date +%s%N)
-AST_DURATION_SEC=$(( (AST_END_TIME - AST_START_TIME) / 1000000000 ))
-AST_MINUTES=$((AST_DURATION_SEC / 60))
-AST_SECONDS=$((AST_DURATION_SEC % 60))
-
 echo "Analysis Summary:"
 echo "  Files analyzed:    $CBL_COUNT COBOL, $JCL_COUNT JCL, $CPY_COUNT Copybooks"
 echo "  Programs mapped:   $MAPPED of $CBL_COUNT"
 echo "  ASTs generated:    $AST_COUNT"
+echo "  Total LOC:         $TOTAL_LOC"
 echo "  Execution time:    ${AST_MINUTES}m ${AST_SECONDS}s"
 echo ""
 
+# Display per-file metrics only if enabled
+if [[ "$GENERATE_METRICS" == "true" ]]; then
+    echo "Per-File Performance Metrics:"
+    echo ""
+    echo "  File Name              LOC    Size      Time(ms)  Status"
+    echo "  ────────────────────────────────────────────────────────"
+
+    for metric in "${FILE_METRICS[@]}"; do
+        IFS='|' read -r fname loc size time status <<< "$metric"
+        printf "  %-24s %5d  %7d   %8d   %s\n" "$fname" "$loc" "$size" "$time" "$status"
+    done
+
+    echo ""
+    if [[ $TOTAL_LOC -gt 0 ]]; then
+        echo "  Scalability Metrics:"
+        echo "    • Total LOC processed:  $TOTAL_LOC"
+        echo "    • Time per 1000 LOC:    ~$((AST_DURATION_SEC * 1000 / TOTAL_LOC))ms"
+        echo "    • Processing rate:      ~$((TOTAL_LOC / (AST_DURATION_SEC + 1))) LOC/sec"
+        echo ""
+    fi
+fi
+
 echo "Output directories:"
-echo "  📊 Mappings:    $MAPPINGS_FILE"
-echo "  📁 ASTs:        $REPORT_DIR"
+echo "  📊 Mappings:      $MAPPINGS_FILE"
+echo "  📁 ASTs:          $REPORT_DIR"
+if [[ "$GENERATE_METRICS" == "true" ]]; then
+    echo "  📈 Metrics:       $METRICS_FILE"
+    echo "  📋 Metrics JSON:  $METRICS_JSON"
+fi
 if [[ "$GENERATE_GRAPHS" == "true" ]]; then
-    echo "  📈 Graphs:      $PROGRAM_GRAPHS_DIR"
+    echo "  🔗 Graphs:        $PROGRAM_GRAPHS_DIR"
 fi
 echo ""
 echo ""
@@ -431,5 +726,8 @@ echo ""
 echo "Next steps:"
 echo "  1. Review mappings: cat $MAPPINGS_FILE | jq ."
 echo "  2. Check ASTs:      ls -la $REPORT_DIR"
-echo "  3. View graph:      cat $GRAPH_FILE | jq ."
+if [[ "$GENERATE_METRICS" == "true" ]]; then
+    echo "  3. View metrics:    cat $METRICS_FILE"
+    echo "  4. View metrics JSON: cat $METRICS_JSON | jq ."
+fi
 echo ""
