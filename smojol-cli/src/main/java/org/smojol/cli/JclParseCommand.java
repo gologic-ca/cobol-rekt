@@ -39,8 +39,8 @@ public class JclParseCommand implements Callable<Integer> {
     private boolean recursive = false;
 
     @Option(names = {"-p", "--python"},
-            description = "Path to Python executable (default: python3)")
-    private String pythonExecutable = "python3";
+            description = "Path to Python executable (default: python)")
+    private String pythonExecutable = "python";
 
     @Option(names = {"--batch"},
             description = "Batch mode: process all JCL files in directory")
@@ -72,7 +72,7 @@ public class JclParseCommand implements Callable<Integer> {
                 } else {
                     System.err.println("✗ Python environment is NOT properly configured");
                     System.err.println("Please ensure:");
-                    System.err.println("  1. Python 3 is installed and accessible");
+                    System.err.println("  1. Python is installed and accessible");
                     System.err.println("  2. Install the parser: pip install legacylens-jcl-parser");
                     return 1;
                 }
@@ -132,7 +132,7 @@ public class JclParseCommand implements Callable<Integer> {
 
             if (e.getMessage().contains("Python")) {
                 System.err.println("\nTroubleshooting:");
-                System.err.println("  1. Verify Python is installed: python3 --version");
+                System.err.println("  1. Verify Python is installed: python --version");
                 System.err.println("  2. Install parser: pip install legacylens-jcl-parser");
                 System.err.println("  3. Use --check-env to verify installation");
             }

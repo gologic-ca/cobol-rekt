@@ -57,8 +57,13 @@ public class CodeTaskRunner {
     private final Format1DataStructureBuildStrategy format1DataStructureBuilder;
     private final ProgramSearch programSearch;
     private final ResourceOperations resourceOperations;
+    private final String jclDirectory;
 
     public CodeTaskRunner(String sourceDir, String reportRootDir, List<File> copyBookPaths, String dialectJarPath, LanguageDialect dialect, FlowchartGenerationStrategy flowchartGenerationStrategy, IdProvider idProvider, Format1DataStructureBuildStrategy format1DataStructureBuilder, ProgramSearch programSearch, ResourceOperations resourceOperations) {
+        this(sourceDir, reportRootDir, copyBookPaths, dialectJarPath, dialect, flowchartGenerationStrategy, idProvider, format1DataStructureBuilder, programSearch, resourceOperations, null);
+    }
+
+    public CodeTaskRunner(String sourceDir, String reportRootDir, List<File> copyBookPaths, String dialectJarPath, LanguageDialect dialect, FlowchartGenerationStrategy flowchartGenerationStrategy, IdProvider idProvider, Format1DataStructureBuildStrategy format1DataStructureBuilder, ProgramSearch programSearch, ResourceOperations resourceOperations, String jclDirectory) {
         this.sourceDir = sourceDir;
         this.copyBookPaths = copyBookPaths;
         this.dialectJarPath = dialectJarPath;
@@ -69,6 +74,7 @@ public class CodeTaskRunner {
         this.format1DataStructureBuilder = format1DataStructureBuilder;
         this.programSearch = programSearch;
         this.resourceOperations = resourceOperations;
+        this.jclDirectory = jclDirectory;
         reportParameters();
     }
 
@@ -80,11 +86,11 @@ public class CodeTaskRunner {
         LOGGER.info("copyBookPaths = " + String.join(",", copyBookPaths.stream().map(cp -> cp.toString() + "\n").toList()));
     }
 
-    public Map<String, List<AnalysisTaskResult>> runForPrograms(List<CommandLineAnalysisTask> tasks, List<String> programFilenames, TaskRunnerMode runnerMode) throws IOException {
+    public Map<String, List<AnalysisTaskResult>> runForPrograms(List<String> taskNames, List<String> programFilenames, TaskRunnerMode runnerMode) throws IOException {
         Map<String, List<AnalysisTaskResult>> results = new HashMap<>();
         for (String programFilename : programFilenames) {
             LOGGER.info(String.format("Running tasks: %s for program '%s' in %s mode...",
-                    tasks.stream().map(CommandLineAnalysisTask::name).toList(),
+                    taskNames,
                     programFilename, runnerMode.toString()));
             try {
                 Pair<File, String> programPath = programSearch.run(programFilename, sourceDir);
@@ -92,7 +98,7 @@ public class CodeTaskRunner {
                     LOGGER.severe(String.format("No program found for '%s' anywhere in path %s \n", programFilename, sourceDir));
                     continue;
                 }
-                List<AnalysisTaskResult> analysisTaskResults = runForProgram(programFilename, programPath.getRight(), reportRootDir, this.dialect, runnerMode.tasks(tasks));
+                List<AnalysisTaskResult> analysisTaskResults = runForProgram(programFilename, programPath.getRight(), reportRootDir, this.dialect, runnerMode.tasks(taskNames));
                 results.put(programFilename, analysisTaskResults);
             } catch (ParseDiagnosticRuntimeError e) {
                 errorMap.put(programFilename, e.getErrors());
@@ -103,10 +109,14 @@ public class CodeTaskRunner {
     }
 
     public Map<String, List<AnalysisTaskResult>> runForPrograms(List<CommandLineAnalysisTask> tasks, List<String> programFilenames) throws IOException {
-        return runForPrograms(tasks, programFilenames, TaskRunnerMode.PRODUCTION_MODE);
+        // Convert CommandLineAnalysisTask enums to String names
+        List<String> taskNames = tasks.stream()
+                .map(CommandLineAnalysisTask::name)
+                .toList();
+        return runForPrograms(taskNames, programFilenames, TaskRunnerMode.PRODUCTION_MODE);
     }
 
-    private List<AnalysisTaskResult> runForProgram(String programFilename, String sourceDir, String reportRootDir, LanguageDialect dialect, List<CommandLineAnalysisTask> tasks) throws IOException {
+    private List<AnalysisTaskResult> runForProgram(String programFilename, String sourceDir, String reportRootDir, LanguageDialect dialect, List<String> taskNames) throws IOException {
         String programReportDir = String.format("%s.report", programFilename);
         Path astOutputDir = Paths.get(reportRootDir, programReportDir, AST_DIR).toAbsolutePath().normalize();
         Path dataStructuresOutputDir = Paths.get(reportRootDir, programReportDir, DATA_STRUCTURES_DIR).toAbsolutePath().normalize();
@@ -151,10 +161,17 @@ public class CodeTaskRunner {
                 flowASTOutputConfig, cfgOutputConfig,
                 graphBuildConfig, dataStructuresOutputConfig, unifiedModelOutputConfig, similarityOutputConfig,
                 mermaidOutputConfig, transpilerModelOutputConfig,
-                llmOutputConfig, idProvider, resourceOperations, new Neo4JDriverBuilder());
-        return tasks.getFirst() != CommandLineAnalysisTask.BUILD_BASE_ANALYSIS
-                ? pipelineTasks.run(Stream.concat(Stream.of(CommandLineAnalysisTask.BUILD_BASE_ANALYSIS), tasks.stream()).toList())
-                : pipelineTasks.run(tasks);
+                llmOutputConfig, idProvider, resourceOperations, new Neo4JDriverBuilder(), jclDirectory);
+        
+        // Ensure BUILD_BASE_ANALYSIS is first if not already present
+        List<String> finalTaskNames = taskNames;
+        if (!taskNames.isEmpty() && !taskNames.getFirst().equals("BUILD_BASE_ANALYSIS")) {
+            finalTaskNames = Stream.concat(Stream.of("BUILD_BASE_ANALYSIS"), taskNames.stream()).toList();
+        } else if (taskNames.isEmpty()) {
+            finalTaskNames = List.of("BUILD_BASE_ANALYSIS");
+        }
+        
+        return pipelineTasks.runWithTaskNames(finalTaskNames);
 //        return pipelineTasks.run(Stream.concat(Stream.of(CommandLineAnalysisTask.BUILD_BASE_ANALYSIS), tasks.stream()).toList());
     }
 }

@@ -10,6 +10,8 @@
     <module>smojol-toolkit</module>
     <module>smojol-core</module>
     <module>smojol-jcl</module>
+    <module>smojol-scanner</module>
+    <module>smojol-batch-processor</module>
     <module>mojo-common</module>
     <module>woof</module>
     <module>che-che4z-lsp-for-cobol-integration/server</module>

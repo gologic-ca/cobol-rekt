@@ -17,7 +17,7 @@ public interface TaskRunnerMode {
         }
 
         @Override
-        public List<CommandLineAnalysisTask> tasks(List<CommandLineAnalysisTask> tasks) {
+        public List<String> tasks(List<String> taskNames) {
             return ImmutableList.of();
         }
 
@@ -34,8 +34,8 @@ public interface TaskRunnerMode {
         }
 
         @Override
-        public List<CommandLineAnalysisTask> tasks(List<CommandLineAnalysisTask> tasks) {
-            return tasks;
+        public List<String> tasks(List<String> taskNames) {
+            return taskNames;
         }
 
         @Override
@@ -46,5 +46,5 @@ public interface TaskRunnerMode {
 
     Map<String, List<AnalysisTaskResult>> run(Map<String, List<SyntaxError>> errorMap, Map<String, List<AnalysisTaskResult>> results);
 
-    List<CommandLineAnalysisTask> tasks(List<CommandLineAnalysisTask> tasks);
+    List<String> tasks(List<String> taskNames);
 }
