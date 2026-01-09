@@ -9,6 +9,7 @@ import org.smojol.common.navigation.CobolEntityNavigator;
 
 import java.io.IOException;
 import java.io.StringWriter;
+import java.util.*;
 import java.util.logging.Logger;
 
 public class BuildSerialisableASTTask {
@@ -21,12 +22,20 @@ public class BuildSerialisableASTTask {
      * @param copybooksRepository
      * @return
      */
-    public CobolContextAugmentedTreeNode run(ParseTree tree, CobolEntityNavigator navigator, Object copybooksRepository) {
+    public CobolContextAugmentedTreeNode run(ParseTree tree, CobolEntityNavigator navigator,
+                                              Object copybooksRepository) {
         navigator.buildDialectNodeRepository();
         java.util.List<String> copybookNames = extractCopybookNames(copybooksRepository);
-        CobolContextAugmentedTreeNode graphRoot = new CobolContextAugmentedTreeNode(tree, navigator, copybookNames, copybooksRepository);
+
+        // Build copybook metadata
+        Map<String, CopybookMetadata> copybooksMetadata =
+                new CopybookMetadataBuilder().build(copybooksRepository);
+
+        CobolContextAugmentedTreeNode graphRoot = new CobolContextAugmentedTreeNode(tree, navigator,
+                copybookNames, copybooksRepository, copybooksMetadata);
         buildContextGraph(tree, graphRoot, navigator, copybookNames, copybooksRepository);
-        LOGGER.info(ConsoleColors.green(String.format("Memory usage: %s", Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory())));
+        LOGGER.info(ConsoleColors.green(String.format("Memory usage: %s",
+                Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory())));
         return graphRoot;
     }
 

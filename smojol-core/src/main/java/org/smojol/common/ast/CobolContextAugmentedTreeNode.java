@@ -13,6 +13,7 @@ import org.smojol.common.navigation.TextSpan;
 
 import java.text.MessageFormat;
 import java.util.List;
+import java.util.Map;
 
 /**
  *  Visualisation Tree Node that encapsulates the actual AST node
@@ -31,6 +32,10 @@ public class CobolContextAugmentedTreeNode extends SimpleTreeNode {
     private final List<String> copybooks;
 
     @Expose
+    @SerializedName("copybooksMetadata")
+    private final Map<String, CopybookMetadata> copybooksMetadata;
+
+    @Expose
     @SerializedName("children")
     private List<TreeNode> childrenRef;
 
@@ -40,10 +45,14 @@ public class CobolContextAugmentedTreeNode extends SimpleTreeNode {
     private final CobolEntityNavigator navigator;
 
     public CobolContextAugmentedTreeNode(ParseTree astNode, CobolEntityNavigator navigator) {
-        this(astNode, navigator, null, null);
+        this(astNode, navigator, null, null, null);
     }
 
     public CobolContextAugmentedTreeNode(ParseTree astNode, CobolEntityNavigator navigator, List<String> allCopybookNames, Object copybooksRepository) {
+        this(astNode, navigator, allCopybookNames, copybooksRepository, null);
+    }
+
+    public CobolContextAugmentedTreeNode(ParseTree astNode, CobolEntityNavigator navigator, List<String> allCopybookNames, Object copybooksRepository, Map<String, CopybookMetadata> copybooksMetadata) {
         super(astNode.getClass().getSimpleName());
         this.astNode = astNode;
         this.nodeType = astNode.getClass().getSimpleName();
@@ -51,6 +60,9 @@ public class CobolContextAugmentedTreeNode extends SimpleTreeNode {
         this.originalText = withType(astNode, false);
         this.span = createSpan(astNode);
         this.copybooks = filterCopybooksByPosition(allCopybookNames, copybooksRepository, this.span);
+        // Only set copybooksMetadata at the root node (when span is created by createSpan)
+        // Non-root nodes will have null for this field
+        this.copybooksMetadata = copybooksMetadata;
     }
 
     private List<String> filterCopybooksByPosition(List<String> allCopybookNames, Object copybooksRepository, TextSpan nodeSpan) {
