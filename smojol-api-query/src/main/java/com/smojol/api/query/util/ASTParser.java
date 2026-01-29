@@ -30,7 +30,8 @@ public class ASTParser {
             builder.name(name);
             
             // Copier les métadonnées
-            builder.path(getStringValue(root, "path", ""));
+            String sourcePath = extractCobolSourcePath(root, name);
+            builder.path(sourcePath);
             builder.programId(getStringValue(root, "program_id", name));
             builder.size(json.length());
             builder.lines(countLines(json));
@@ -188,7 +189,10 @@ public class ASTParser {
             
             String name = extractProgramName(fileName);
             builder.name(name);
-            builder.path(getStringValue(root, "path", ""));
+            
+            // Extraire le path depuis copybooksMetadata si disponible
+            String copybookPath = extractCopybookPath(root, name);
+            builder.path(copybookPath);
             builder.size(json.length());
             builder.lines(countLines(json));
             builder.parseStatus(ParseStatus.SUCCESS);
@@ -492,5 +496,108 @@ public class ASTParser {
 
     private static int countLines(String text) {
         return text.split("\n", -1).length;
+    }
+
+    /**
+     * Extraire le path du fichier source COBOL depuis les métadonnées copybooksMetadata
+     * Le path se trouve dans copybooksMetadata.{COPYBOOK}.usages[0].uri
+     */
+    private static String extractCobolSourcePath(JsonNode root, String programName) {
+        try {
+            JsonNode copybooksMetadata = root.get("copybooksMetadata");
+            if (copybooksMetadata == null || !copybooksMetadata.isObject()) {
+                logger.debug("No copybooksMetadata found for {}", programName);
+                return "";
+            }
+            
+            // Parcourir les copybooks pour trouver un usage qui référence le fichier COBOL
+            Iterator<Map.Entry<String, JsonNode>> fields = copybooksMetadata.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> entry = fields.next();
+                JsonNode copybookMetadata = entry.getValue();
+                JsonNode usages = copybookMetadata.get("usages");
+                
+                if (usages != null && usages.isArray() && usages.size() > 0) {
+                    JsonNode firstUsage = usages.get(0);
+                    JsonNode uriNode = firstUsage.get("uri");
+                    if (uriNode != null && !uriNode.isNull()) {
+                        String uri = uriNode.asText();
+                        // Normaliser l'URI (enlever file:/ ou file://)
+                        String normalizedPath = normalizeFileUri(uri);
+                        logger.debug("Extracted source path for {}: {}", programName, normalizedPath);
+                        return normalizedPath;
+                    }
+                }
+            }
+            
+            logger.debug("No usages found in copybooksMetadata for {}", programName);
+            return "";
+        } catch (Exception e) {
+            logger.warn("Error extracting source path for {}: {}", programName, e.getMessage());
+            return "";
+        }
+    }
+
+    /**
+     * Extraire le path d'un copybook depuis copybooksMetadata.{NAME}.uri
+     */
+    private static String extractCopybookPath(JsonNode root, String copybookName) {
+        try {
+            JsonNode copybooksMetadata = root.get("copybooksMetadata");
+            if (copybooksMetadata == null || !copybooksMetadata.isObject()) {
+                logger.debug("No copybooksMetadata found for copybook {}", copybookName);
+                return "";
+            }
+            
+            // Chercher le copybook par son nom
+            JsonNode copybookMetadata = copybooksMetadata.get(copybookName);
+            if (copybookMetadata == null) {
+                // Essayer avec des variations du nom (avec/sans extension)
+                String nameWithoutExt = copybookName.replace(".cpy", "").replace(".CPY", "");
+                copybookMetadata = copybooksMetadata.get(nameWithoutExt);
+            }
+            
+            if (copybookMetadata != null) {
+                JsonNode uriNode = copybookMetadata.get("uri");
+                if (uriNode != null && !uriNode.isNull()) {
+                    String uri = uriNode.asText();
+                    String normalizedPath = normalizeFileUri(uri);
+                    logger.debug("Extracted copybook path for {}: {}", copybookName, normalizedPath);
+                    return normalizedPath;
+                }
+            }
+            
+            logger.debug("No uri found in copybooksMetadata for copybook {}", copybookName);
+            return "";
+        } catch (Exception e) {
+            logger.warn("Error extracting copybook path for {}: {}", copybookName, e.getMessage());
+            return "";
+        }
+    }
+
+    /**
+     * Normaliser un URI de fichier (enlever le préfixe file:/ ou file://)
+     * Exemples:
+     * - file:///C:/path/file.cbl -> C:/path/file.cbl
+     * - file:/C:/path/file.cbl -> C:/path/file.cbl
+     * - C:/path/file.cbl -> C:/path/file.cbl
+     */
+    private static String normalizeFileUri(String uri) {
+        if (uri == null || uri.isEmpty()) {
+            return "";
+        }
+        
+        // Supprimer le préfixe file:
+        String normalized = uri;
+        if (normalized.startsWith("file:///")) {
+            normalized = normalized.substring(8);
+        } else if (normalized.startsWith("file:/")) {
+            normalized = normalized.substring(6);
+        }
+        
+        // Remplacer les barres obliques inversées par des barres obliques normales pour Windows
+        normalized = normalized.replace('\\', '/');
+        
+        return normalized;
     }
 }

@@ -106,12 +106,21 @@ public class SmojolRestAPI {
     
     private void getJcl(Context ctx) {
         String name = ctx.pathParam("name");
-        queryService.getJcl(name)
+        logger.info("Getting JCL: {}", name);
+        
+        // Rechercher le JCL dans la liste complète
+        Optional<Map<String, Object>> jcl = queryService.getAllJcl().stream()
+            .filter(j -> j.getName().equals(name))
             .map(this::jclToMap)
-            .ifPresentOrElse(
-                ctx::json,
-                () -> ctx.status(404).json(Map.of("error", "JCL not found"))
-            );
+            .findFirst();
+        
+        jcl.ifPresentOrElse(
+            ctx::json,
+            () -> {
+                logger.warn("JCL not found: {}", name);
+                ctx.status(404).json(Map.of("error", "JCL not found"));
+            }
+        );
     }
     
     private void getAllCopybooks(Context ctx) {
@@ -128,12 +137,21 @@ public class SmojolRestAPI {
     
     private void getCopybook(Context ctx) {
         String name = ctx.pathParam("name");
-        queryService.getCopybook(name)
+        logger.info("Getting copybook: {}", name);
+        
+        // Rechercher le copybook dans la liste complète
+        Optional<Map<String, Object>> copybook = queryService.getAllCopybooks().stream()
+            .filter(c -> c.getName().equals(name))
             .map(this::copybookToMap)
-            .ifPresentOrElse(
-                ctx::json,
-                () -> ctx.status(404).json(Map.of("error", "Copybook not found"))
-            );
+            .findFirst();
+        
+        copybook.ifPresentOrElse(
+            ctx::json,
+            () -> {
+                logger.warn("Copybook not found: {}", name);
+                ctx.status(404).json(Map.of("error", "Copybook not found"));
+            }
+        );
     }
     
     private void getAllDatasets(Context ctx) {
@@ -150,12 +168,26 @@ public class SmojolRestAPI {
     
     private void getDataset(Context ctx) {
         String name = ctx.pathParam("name");
-        queryService.getDataset(name)
-            .map(this::datasetToMap)
-            .ifPresentOrElse(
+        logger.info("Getting dataset: {}", name);
+        
+        try {
+            // Rechercher le dataset dans la liste complète
+            Optional<Map<String, Object>> dataset = queryService.getAllDatasets().stream()
+                .filter(d -> d.getName().equals(name))
+                .map(this::datasetToMap)
+                .findFirst();
+            
+            dataset.ifPresentOrElse(
                 ctx::json,
-                () -> ctx.status(404).json(Map.of("error", "Dataset not found"))
+                () -> {
+                    logger.warn("Dataset not found: {}", name);
+                    ctx.status(404).json(Map.of("error", "Dataset not found"));
+                }
             );
+        } catch (Exception e) {
+            logger.error("Error getting dataset: {}", name, e);
+            ctx.status(500).json(Map.of("error", e.getMessage()));
+        }
     }
     
     // Conversion methods
@@ -163,6 +195,8 @@ public class SmojolRestAPI {
         Map<String, Object> map = new HashMap<>();
         map.put("name", cbl.getName());
         map.put("path", cbl.getPath());
+        map.put("size", cbl.getSize());
+        map.put("lines", cbl.getLines());
         map.put("copybooks", orEmpty(cbl.getCopybooks()));
         map.put("jcls", orEmpty(cbl.getJcls()));
         map.put("callees", orEmpty(cbl.getCallees()));
@@ -182,6 +216,9 @@ public class SmojolRestAPI {
     private Map<String, Object> copybookToMap(Copybook copybook) {
         Map<String, Object> map = new HashMap<>();
         map.put("name", copybook.getName());
+        map.put("path", copybook.getPath() != null ? copybook.getPath() : "");
+        map.put("size", copybook.getSize());
+        map.put("lines", copybook.getLines());
         map.put("usedBy", orEmpty(copybook.getUsedByCobol()));
         return map;
     }

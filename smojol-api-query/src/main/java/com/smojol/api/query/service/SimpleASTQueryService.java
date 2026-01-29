@@ -737,38 +737,104 @@ public class SimpleASTQueryService implements ASTQueryService {
     public List<Copybook> getAllCopybooks() {
         logger.debug("getAllCopybooks called");
         
-        // Map pour accumuler les usages de chaque copybook
-        Map<String, List<String>> copybookUsages = new HashMap<>();
+        // Map pour accumuler les informations de chaque copybook
+        Map<String, Copybook> copybookMap = new HashMap<>();
         
-        // 1. Scanner tous les programmes pour collecter les copybooks
+        // 1. Scanner tous les programmes pour extraire les métadonnées des copybooks depuis astData
         List<CBLFile> allPrograms = getAllCbl();
         
         for (CBLFile program : allPrograms) {
+            // Extraire les métadonnées des copybooks depuis astData.copybooksMetadata
+            if (program.getAstData() != null) {
+                Object copybooksMetadataObj = program.getAstData().get("copybooksMetadata");
+                if (copybooksMetadataObj instanceof Map) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> copybooksMetadata = (Map<String, Object>) copybooksMetadataObj;
+                    
+                    for (Map.Entry<String, Object> entry : copybooksMetadata.entrySet()) {
+                        String copybookName = entry.getKey();
+                        Object metadataObj = entry.getValue();
+                        
+                        if (metadataObj instanceof Map) {
+                            @SuppressWarnings("unchecked")
+                            Map<String, Object> metadata = (Map<String, Object>) metadataObj;
+                            
+                            if (!copybookMap.containsKey(copybookName)) {
+                                // Extraire uri, size, lines depuis les métadonnées
+                                String uri = metadata.get("uri") != null ? metadata.get("uri").toString() : "";
+                                String path = normalizeUri(uri);
+                                int size = metadata.get("size") != null ? ((Number) metadata.get("size")).intValue() : 0;
+                                int lines = metadata.get("lines") != null ? ((Number) metadata.get("lines")).intValue() : 0;
+                                
+                                Copybook copybook = Copybook.builder()
+                                    .name(copybookName)
+                                    .path(path)
+                                    .size(size)
+                                    .lines(lines)
+                                    .parseStatus(ParseStatus.SUCCESS)
+                                    .lastModified(System.currentTimeMillis())
+                                    .usedByCobol(new ArrayList<>())
+                                    .usedByCopybook(new ArrayList<>())
+                                    .includes(new ArrayList<>())
+                                    .build();
+                                copybookMap.put(copybookName, copybook);
+                                logger.debug("Extracted copybook {} with path: {}", copybookName, path);
+                            }
+                            
+                            // Ajouter ce programme à la liste des usages
+                            copybookMap.get(copybookName).getUsedByCobol().add(program.getName());
+                        }
+                    }
+                }
+            }
+            
+            // Fallback : utiliser la liste simple des noms de copybooks si astData n'est pas disponible
             if (program.getCopybooks() != null) {
                 for (String copybookName : program.getCopybooks()) {
-                    copybookUsages.computeIfAbsent(copybookName, k -> new ArrayList<>())
-                        .add(program.getName());
+                    if (!copybookMap.containsKey(copybookName)) {
+                        Copybook copybook = Copybook.builder()
+                            .name(copybookName)
+                            .path("")
+                            .size(0)
+                            .lines(0)
+                            .parseStatus(ParseStatus.SUCCESS)
+                            .lastModified(System.currentTimeMillis())
+                            .usedByCobol(new ArrayList<>())
+                            .usedByCopybook(new ArrayList<>())
+                            .includes(new ArrayList<>())
+                            .build();
+                        copybookMap.put(copybookName, copybook);
+                        logger.debug("Created minimal copybook {} (no metadata)", copybookName);
+                    }
+                    if (!copybookMap.get(copybookName).getUsedByCobol().contains(program.getName())) {
+                        copybookMap.get(copybookName).getUsedByCobol().add(program.getName());
+                    }
                 }
             }
         }
         
-        // 2. Créer les objets Copybook avec toutes les données
-        List<Copybook> result = new ArrayList<>();
-        for (Map.Entry<String, List<String>> entry : copybookUsages.entrySet()) {
-            Copybook copybook = Copybook.builder()
-                .name(entry.getKey())
-                .path("")
-                .parseStatus(ParseStatus.SUCCESS)
-                .lastModified(System.currentTimeMillis())
-                .usedByCobol(entry.getValue())
-                .usedByCopybook(new ArrayList<>())
-                .includes(new ArrayList<>())
-                .build();
-            result.add(copybook);
-        }
-        
+        List<Copybook> result = new ArrayList<>(copybookMap.values());
         logger.info("Found {} unique copybooks across {} programs", result.size(), allPrograms.size());
         return result;
+    }
+    
+    /**
+     * Normalise un URI de fichier (enlève le préfixe file:/ ou file://)
+     */
+    private String normalizeUri(String uri) {
+        if (uri == null || uri.isEmpty()) {
+            return "";
+        }
+        
+        String normalized = uri;
+        if (normalized.startsWith("file:///")) {
+            normalized = normalized.substring(8);
+        } else if (normalized.startsWith("file:/")) {
+            normalized = normalized.substring(6);
+        }
+        
+        normalized = normalized.replace('\\', '/');
+        return normalized;
     }
 
     @Override
