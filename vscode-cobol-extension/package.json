@@ -1,0 +1,67 @@
+{
+  "name": "cobol-smojol-navigator",
+  "displayName": "COBOL Smojol Navigator",
+  "description": "Navigate COBOL code with copybook Go-to-Definition, Hover info, and JCL program references using Smojol MCP API",
+  "version": "1.0.0",
+  "publisher": "gologic",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gologic-partner/cobol-rekt.git",
+    "directory": "vscode-cobol-extension"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:cobol",
+    "onLanguage:jcl"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "cobol",
+        "extensions": [".cbl", ".cob", ".cobol"],
+        "aliases": ["COBOL", "cobol"]
+      },
+      {
+        "id": "jcl",
+        "extensions": [".jcl"],
+        "aliases": ["JCL", "jcl"]
+      }
+    ],
+    "configuration": {
+      "title": "COBOL Smojol Navigator",
+      "properties": {
+        "cobolSmojol.apiUrl": {
+          "type": "string",
+          "default": "http://localhost:8080",
+          "description": "URL de l'API Smojol REST"
+        },
+        "cobolSmojol.searchExclude": {
+          "type": "array",
+          "default": ["**/node_modules/**", "**/out/**", "**/target/**", "**/.git/**"],
+          "description": "Patterns de fichiers/dossiers à exclure de la recherche (glob patterns)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.x",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "axios": "^1.6.0"
+  }
+}
