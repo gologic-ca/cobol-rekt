@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 JCL Analysis Module
-Centralized JCL parsing and analysis using the legacylens-jcl-parser library.
+Centralized JCL parsing and analysis using the jcl_parser-gologic library.
 
 This module provides:
 - Single-pass JCL parsing for all analysis needs
@@ -69,6 +69,7 @@ class ParsedJCL:
         self._programs: Optional[List[str]] = None
         self._dd_names: Optional[List[Dict[str, Any]]] = None
         self._steps: Optional[List[Dict[str, Any]]] = None
+        self._bindplans: Optional[List[Dict[str, Any]]] = None
         self._job_name: Optional[str] = None
         self._lines: int = 0
         self._size: int = 0
@@ -148,6 +149,23 @@ class ParsedJCL:
                         'dd_count': len(step.get('dd_statements', []))
                     })
         return self._steps
+    
+    @property
+    def bindplans(self) -> List[Dict[str, Any]]:
+        """Extract BINDPLAN information from parsed JCL."""
+        if self._bindplans is None:
+            self._bindplans = []
+            if self.raw_data:
+                for bindplan in self.raw_data.get('bindplans', []):
+                    self._bindplans.append({
+                        'name': bindplan.get('name', ''),
+                        'plan': bindplan.get('plan', ''),
+                        'line': bindplan.get('line', 0),
+                        'entry_point': bindplan.get('entry_point', ''),
+                        'include_files': bindplan.get('include_files', []),
+                        'plan_file_found': bindplan.get('plan_file_found', False)
+                    })
+        return self._bindplans
     
     def _extract_datasets(self) -> Dict[str, List[Dict[str, Any]]]:
         """Extract and categorize datasets (INPUT, OUTPUT, SYSOUT)."""
@@ -285,6 +303,7 @@ class ParsedJCL:
             'programs': self.programs,
             'dd_names': [d['name'] for d in self.dd_names],
             'steps': self.steps if not include_details else self._get_detailed_steps(),
+            'bindplans': self.bindplans,
             'lines': self._lines,
             'size': self._size,
             'parse_error': self.parse_error
@@ -380,7 +399,21 @@ class JCLAnalyzer:
         # Parse with AST parser if available
         if self.parser:
             try:
-                result = self.parser.parse_string(content)
+                # Detect plan directory for BINDPLAN support
+                # Look for "plan" folder at same level as JCL parent directory
+                jcl_parent = jcl_path.parent
+                potential_plan_dir = jcl_parent.parent / "plan"
+                if not potential_plan_dir.exists():
+                    # Also try at same level as JCL directory
+                    potential_plan_dir = jcl_parent / "plan"
+                
+                base_path = str(potential_plan_dir) if potential_plan_dir.exists() else None
+                
+                # Parse with base_path for BINDPLAN support
+                if base_path:
+                    result = self.parser.parse_string(content, base_path=base_path)
+                else:
+                    result = self.parser.parse_string(content)
                 
                 # Handle different return types
                 if hasattr(result, 'to_json'):
@@ -641,9 +674,21 @@ class JCLAnalyzer:
     def get_cobol_mapping_json(self) -> Dict[str, Any]:
         """
         Get COBOL-JCL mappings in the format expected by scan_and_analyze_project.sh.
-        Used by analyze_jcl_to_cobol.py.
+        Used by analyze_jcl_to_cobol.py. Includes BINDPLAN information if available.
         """
         stats = self.get_mapping_stats()
+        
+        # Extract BINDPLAN data
+        bindplans_data = []
+        for jcl_key, parsed in self.jcl_files.items():
+            for bindplan in parsed.bindplans:
+                bindplans_data.append({
+                    'jcl_file': parsed.name,
+                    'plan_name': bindplan['plan'],
+                    'entry_point': bindplan['entry_point'],
+                    'plan_file_found': bindplan['plan_file_found'],
+                    'objlib_includes': bindplan['include_files']
+                })
         
         return {
             'statistics': stats,
@@ -653,7 +698,8 @@ class JCLAnalyzer:
                     'jcl_files': jcl_list
                 }
                 for prog, jcl_list in sorted(self.cobol_to_jcl.items())
-            ]
+            ],
+            'bindplans': bindplans_data
         }
     
     def get_full_analysis(self) -> Dict[str, Any]:

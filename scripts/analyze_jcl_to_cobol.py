@@ -88,7 +88,7 @@ def main():
             print(f"[SCAN] Analyzing JCL → COBOL mappings")
             print(f"       JCL root: {jcl_root}")
             print(f"       COBOL root: {cbl_root}")
-            print(f"       Parser: {'legacylens-jcl-parser (AST-based)' if analyzer.parser_available else 'regex fallback'}")
+            print(f"       Parser: {'jcl_parser-gologic (AST-based)' if analyzer.parser_available else 'regex fallback'}")
             print()
         
         # Load files
@@ -113,6 +113,8 @@ def main():
         if not args.json:
             for jcl_key, parsed in sorted(analyzer.jcl_files.items()):
                 print(f"[JCL] {parsed.name}")
+                
+                # Display programs from PGM= statements
                 for prog in parsed.programs:
                     prog_upper = prog.upper()
                     if prog_upper in analyzer.cobol_index:
@@ -122,6 +124,21 @@ def main():
                         print(f"  ⚙️  {prog_upper} (system)")
                     else:
                         print(f"  ❌ {prog_upper}")
+                
+                # Display BINDPLAN information
+                for bindplan in parsed.bindplans:
+                    print(f"  📋 BINDPLAN: {bindplan['plan']} (entry: {bindplan['entry_point']})")
+                    if bindplan['include_files']:
+                        for obj_file in bindplan['include_files']:
+                            obj_upper = obj_file.upper()
+                            if obj_upper in analyzer.cobol_index:
+                                cbl_file = analyzer.cobol_index[obj_upper]
+                                print(f"    ✅ {obj_file} → {cbl_file.name}")
+                            else:
+                                print(f"    ❓ {obj_file}")
+                    if not bindplan['plan_file_found']:
+                        print(f"    ⚠️  Plan file not found")
+                
                 print()
         
         # Output as JSON if requested
@@ -137,6 +154,15 @@ def main():
         print("=" * 60)
         print(f"Programs found in COBOL index: {stats['found']}")
         print(f"Programs not in COBOL index: {stats['missing']}")
+        
+        # Calculate BINDPLAN statistics
+        total_bindplans = sum(len(parsed.bindplans) for parsed in analyzer.jcl_files.values())
+        total_obj_refs = sum(len(bp['include_files']) for parsed in analyzer.jcl_files.values() for bp in parsed.bindplans)
+        if total_bindplans > 0:
+            print()
+            print(f"BINDPLAN Steps found: {total_bindplans}")
+            print(f"OBJLIB references: {total_obj_refs}")
+        
         print()
         print("COBOL Programs with JCL associations:")
         print()

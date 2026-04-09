@@ -13,6 +13,8 @@ Serveur MCP (Model Context Protocol) pour interroger et analyser du code COBOL v
 ### 2. Installation
 
 ```bash
+python -m pip install --config-settings="--global-option=build_ext" --config-settings="--global-option=-IC:\dev\Graphviz-14.1.2-win64\include" --config-settings="--global-option=-LC:\dev\Graphviz-14.1.2-win64\lib" pygraphviz
+
 cd smojol_python
 pip install -r requirements.txt
 ```

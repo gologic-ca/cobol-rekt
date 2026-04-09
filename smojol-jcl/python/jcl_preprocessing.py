@@ -212,7 +212,7 @@ def fix_jcl_parameters_in_result(jcl_result):
     and re-parses all parameter dictionaries using the generic parse_jcl_parameters function.
     
     Args:
-        jcl_result (dict): The parsed JCL structure from legacylens
+        jcl_result (dict): The parsed JCL structure from jcl_parser-gologic
         
     Returns:
         dict: The JCL structure with corrected parameters

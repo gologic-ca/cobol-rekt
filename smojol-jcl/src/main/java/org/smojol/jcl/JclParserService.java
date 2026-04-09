@@ -17,7 +17,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * Service for parsing JCL files using the Python legacylens-jcl-parser library.
+ * Service for parsing JCL files using the Python jcl_parser-gologic library.
  * This class acts as a bridge between Java and the Python parser.
  */
 public class JclParserService {
@@ -241,15 +241,15 @@ public class JclParserService {
                 return false;
             }
             
-            // Check if legacylens-jcl-parser is installed
+            // Check if jcl_parser module is installed
             pb = new ProcessBuilder(pythonExecutable, "-c", 
-                    "import legacylens_jcl_parser; print('OK')");
+                    "import jcl_parser; print('OK')");
             process = pb.start();
             String output = readProcessOutput(process.getInputStream());
             completed = process.waitFor(5, TimeUnit.SECONDS);
             
             if (!completed || process.exitValue() != 0 || !output.contains("OK")) {
-                LOGGER.warning("legacylens-jcl-parser library not installed");
+                LOGGER.warning("jcl_parser module not installed. Install with: pip install -e ./jcl_parser-gologic");
                 return false;
             }
             

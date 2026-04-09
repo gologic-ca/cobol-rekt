@@ -67,13 +67,13 @@ public class JclParseCommand implements Callable<Integer> {
                 boolean envOk = parserService.checkEnvironment();
                 if (envOk) {
                     System.out.println("✓ Python environment is properly configured");
-                    System.out.println("✓ legacylens-jcl-parser library is installed");
+                    System.out.println("✓ jcl_parser-gologic library is installed");
                     return 0;
                 } else {
                     System.err.println("✗ Python environment is NOT properly configured");
                     System.err.println("Please ensure:");
                     System.err.println("  1. Python is installed and accessible");
-                    System.err.println("  2. Install the parser: pip install legacylens-jcl-parser");
+                    System.err.println("  2. Install the parser: pip install -e ./jcl_parser-gologic");
                     return 1;
                 }
             }
@@ -133,7 +133,7 @@ public class JclParseCommand implements Callable<Integer> {
             if (e.getMessage().contains("Python")) {
                 System.err.println("\nTroubleshooting:");
                 System.err.println("  1. Verify Python is installed: python --version");
-                System.err.println("  2. Install parser: pip install legacylens-jcl-parser");
+                System.err.println("  2. Install parser: pip install -e ./jcl_parser-gologic");
                 System.err.println("  3. Use --check-env to verify installation");
             }
 

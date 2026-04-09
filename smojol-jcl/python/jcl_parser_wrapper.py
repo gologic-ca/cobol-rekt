@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 JCL Parser Wrapper
-Wraps the legacylens-jcl-parser library to parse JCL files and output JSON.
+Wraps the local jcl_parser-gologic library to parse JCL files and output JSON.
 """
 import sys
 import json

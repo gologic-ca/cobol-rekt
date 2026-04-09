@@ -319,6 +319,9 @@ if [[ -n "$PYTHON_CMD" ]] && [[ -f "$JCL_ANALYSIS_SCRIPT" ]]; then
     
     # Use Python script for accurate JCL-COBOL matching via PGM= extraction
     TEMP_OUTPUT=$(mktemp)
+
+    echo "$PYTHON_CMD $JCL_ANALYSIS_SCRIPT -j $PYTHON_JCL_DIR -c $PYTHON_COBOL_DIR --json > $TEMP_OUTPUT"
+
     "$PYTHON_CMD" "$JCL_ANALYSIS_SCRIPT" \
         -j "$PYTHON_JCL_DIR" \
         -c "$PYTHON_COBOL_DIR" \

@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "legacylens_jcl_parser"
+version = "0.1.10"
+description = "A parser for JCL (Job Control Language) files with JSON output"
+readme = "README.md"
+authors = [
+    {name = "Samuel Dion", email = "sam94dion@gmail.com"},
+]
+license = {text = "MIT"}
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.6",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.7"
+dependencies = [
+    "typing-extensions>=3.7.4",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/sam94dion/legacylens-jcl-parser"
+"Bug Tracker" = "https://github.com/sam94dion/legacylens-jcl-parser/issues"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0.0",
+    "pytest-cov>=2.10.0",
+    "black>=20.8b1",
+    "flake8>=3.8.0",
+]

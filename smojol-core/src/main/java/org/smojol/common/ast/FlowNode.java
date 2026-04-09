@@ -56,4 +56,5 @@ public interface FlowNode extends FlowNodeLike {
     void addChild(FlowNode child);
 
     void buildTwin();
+    List<String> copybooks();
 }
