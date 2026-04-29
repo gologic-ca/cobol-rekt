@@ -170,7 +170,9 @@ public class WriteAggregatedJclAstTask implements AnalysisTask {
 
     /**
      * Find JCL file in directory matching the program name.
-     * Tries exact match first, then fuzzy matching.
+     * Tries exact match first, then case-insensitive match, then falls back
+     * to any .jcl file in the directory (supports pre-filtered temp directories
+     * where the JCL filename differs from the COBOL program name).
      */
     private Path findJclFile(Path jclDir, String programName) throws IOException {
         // Try exact match first (e.g., CBIMPORT.jcl for program CBIMPORT)
@@ -181,7 +183,7 @@ public class WriteAggregatedJclAstTask implements AnalysisTask {
         
         // Try case-insensitive search
         try (Stream<Path> files = Files.list(jclDir)) {
-            return files
+            Path caseInsensitiveMatch = files
                     .filter(p -> p.getFileName().toString().toLowerCase().endsWith(".jcl"))
                     .filter(p -> {
                         String fileName = p.getFileName().toString();
@@ -190,7 +192,31 @@ public class WriteAggregatedJclAstTask implements AnalysisTask {
                     })
                     .findFirst()
                     .orElse(null);
+            if (caseInsensitiveMatch != null) {
+                return caseInsensitiveMatch;
+            }
         }
+        
+        // Fallback: use any .jcl file in the directory.
+        // This supports the case where the orchestration script has already
+        // matched JCL to COBOL via PGM= analysis and placed the correct
+        // JCL file(s) in a dedicated temp directory, even though the
+        // JCL filename differs from the COBOL program name.
+        try (Stream<Path> files = Files.list(jclDir)) {
+            List<Path> jclFiles = files
+                    .filter(p -> p.getFileName().toString().toLowerCase().endsWith(".jcl"))
+                    .toList();
+            if (!jclFiles.isEmpty()) {
+                if (jclFiles.size() == 1) {
+                    LOGGER.info("No name match for program " + programName + ", using single JCL file: " + jclFiles.get(0).getFileName());
+                } else {
+                    LOGGER.info("No name match for program " + programName + ", using first of " + jclFiles.size() + " JCL files: " + jclFiles.get(0).getFileName());
+                }
+                return jclFiles.get(0);
+            }
+        }
+        
+        return null;
     }
 
     /**
