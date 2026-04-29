@@ -335,6 +335,9 @@ if [[ -n "$PYTHON_CMD" ]] && [[ -f "$JCL_ANALYSIS_SCRIPT" ]]; then
         # Get count before any further processing
         MAPPED=$(grep -c '"program"' "$MAPPINGS_FILE" 2>/dev/null || echo "0")
         echo "  Matched: $MAPPED programs using PGM= extraction"
+
+        MAPPED=$(grep -c '"bindplans"' "$MAPPINGS_FILE" 2>/dev/null || echo "0")
+        echo "  Matched: $MAPPED programs using BINDPLAN extraction"
     else
         echo -e "${YELLOW}  Warning: Python script analysis failed${NC}"
         echo "{}" > "$MAPPINGS_FILE"
