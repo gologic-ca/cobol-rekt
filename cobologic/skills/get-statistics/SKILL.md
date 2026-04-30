@@ -1,7 +1,7 @@
 ---
 name: get-statistics
-description: Retourne les statistiques globales du système COBOL analysé : totaux (programmes, copybooks, JCL, datasets), top 10 des programmes les plus complexes, top 10 des copybooks les plus utilisés, et répartition par niveau de complexité. Utiliser pour avoir une vue d'ensemble de la base de code ou en début de session.
-compatibility: Requires smojol-rest-api running. Requires Python 3.10+ with httpx installed. Set COBOL_REST_URL (default http://localhost:8080).
+description: "Retourne les statistiques globales du système COBOL analysé : totaux (programmes, copybooks, JCL, datasets), top 10 des programmes les plus complexes, top 10 des copybooks les plus utilisés, et répartition par niveau de complexité. Utiliser pour avoir une vue d'ensemble de la base de code ou en début de session."
+compatibility: "Requires smojol-rest-api running. Requires Python 3.10+ with httpx installed. Set COBOL_REST_URL (default http://localhost:8080)."
 ---
 
 # Get Global Statistics

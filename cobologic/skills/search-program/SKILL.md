@@ -1,7 +1,7 @@
 ---
 name: search-program
-description: Recherche un programme COBOL par son nom et retourne ses détails complets : copybooks utilisés, programmes appelants (callers), programmes appelés (callees) et JCL associés. Utiliser quand l'utilisateur demande des informations sur un programme COBOL spécifique, veut savoir qui appelle un programme, ou quels copybooks il utilise.
-compatibility: Requires smojol-rest-api running. Set COBOL_REST_URL (default http://localhost:8080).
+description: "Recherche un programme COBOL par son nom et retourne ses détails complets : copybooks utilisés, programmes appelants (callers), programmes appelés (callees) et JCL associés. Utiliser quand l'utilisateur demande des informations sur un programme COBOL spécifique, veut savoir qui appelle un programme, ou quels copybooks il utilise."
+compatibility: "Requires smojol-rest-api running. Set COBOL_REST_URL (default http://localhost:8080)."
 ---
 
 # Search COBOL Program
@@ -24,6 +24,7 @@ Present the result as:
 - **Appelé par** (`callers_count`) : list of callers
 - **Appelle** (`callees_count`) : list of callees
 - **JCL** : list of JCL files
+- **Plans** : list of plans (from `plans` array)
 
 Compute `complexity_score = copybooks.length * 2 + callees.length * 3 + callers.length` and show it.
 

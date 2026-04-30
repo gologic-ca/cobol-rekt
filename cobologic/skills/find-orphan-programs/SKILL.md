@@ -19,9 +19,9 @@ compatibility: Requires smojol-rest-api running. Set COBOL_REST_URL (default htt
 >
 > **{orphan_count}** programme(s) sur **{total}** ne sont jamais appelés ni référencés dans un JCL ({percentage}%)
 >
-> | Programme | Copybooks | Appelle d'autres |
-> |-----------|-----------|-----------------|
-> | PROG1     | N         | ✓/✗             |
+> | Programme | Copybooks | Appelle d'autres | JCL  | Plans |
+> |-----------|-----------|-----------------|------|-------|
+> | PROG1     | N         | ✓/✗             | list | list  |
 >
 > ⚠️ **Recommandation** : Ces programmes ne sont jamais déclenchés dans ce catalogue. Vérifier s'ils sont :
 > - Appelés dynamiquement (CALL variable)

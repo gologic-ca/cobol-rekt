@@ -10,8 +10,10 @@ import org.slf4j.LoggerFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -88,6 +90,18 @@ public class JclAnalysisParser {
             }
         }
 
+        // Extraire les plans depuis bindplans
+        List<String> plans = new ArrayList<>();
+        JsonNode bindplansNode = jclNode.get("bindplans");
+        if (bindplansNode != null && bindplansNode.isArray()) {
+            for (JsonNode bpNode : bindplansNode) {
+                String planName = getTextValue(bpNode, "plan", "");
+                if (!planName.isEmpty()) {
+                    plans.add(planName);
+                }
+            }
+        }
+
         // Extraire uniquement les DSN (vrais datasets) depuis les steps
         // Note: On ignore dd_names car ce sont les noms des DD statements (SYSPRINT, etc.)
         // pas les DSN (Data Set Names) qui sont les vrais datasets
@@ -111,6 +125,7 @@ public class JclAnalysisParser {
                 .jobName(jobName)
                 .path(path)
                 .programs(programs)
+                .plans(plans)
                 .datasets(new ArrayList<>(datasetsSet))
                 .steps(steps)
                 .parseStatus(ParseStatus.SUCCESS)
@@ -126,11 +141,23 @@ public class JclAnalysisParser {
         String program = getTextValue(stepNode, "program", "");
 
         List<String> datasets = extractDatasetsFromDdStatements(stepNode);
+        
+        // Extract step parameters (PLAN, BINDPLAN, PGM, etc.)
+        Map<String, String> parameters = new HashMap<>();
+        JsonNode paramsNode = stepNode.get("parameters");
+        if (paramsNode != null && paramsNode.isObject()) {
+            paramsNode.fields().forEachRemaining(entry -> {
+                if (!entry.getKey().equals("_value")) {
+                    parameters.put(entry.getKey(), entry.getValue().asText());
+                }
+            });
+        }
 
         return JCLFile.JCLStep.builder()
                 .name(stepName)
                 .program(program)
                 .datasets(datasets)
+                .parameters(parameters)
                 .build();
     }
 

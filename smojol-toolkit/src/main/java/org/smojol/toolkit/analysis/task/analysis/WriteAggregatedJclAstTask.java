@@ -147,9 +147,13 @@ public class WriteAggregatedJclAstTask implements AnalysisTask {
             
             LOGGER.info("Found JCL file: " + jclFile);
             
-            // Parse JCL file
+            // Detect plan directory for BINDPLAN support
+            // Look for "plan" folder as sibling of JCL directory or its parent
+            Path planBasePath = detectPlanDirectory(jclFile);
+            
+            // Parse JCL file with plan base path
             JclParserService jclParser = new JclParserService();
-            JclParseResult parseResult = jclParser.parseJclFile(jclFile);
+            JclParseResult parseResult = jclParser.parseJclFile(jclFile, planBasePath);
 
             if (parseResult == null || parseResult.getJcl() == null) {
                 LOGGER.warning("Failed to parse JCL file: " + jclFile);
@@ -166,6 +170,34 @@ public class WriteAggregatedJclAstTask implements AnalysisTask {
             LOGGER.warning("Unexpected error processing JCL: " + e.getMessage());
             return emptyContext;
         }
+    }
+
+    /**
+     * Detect the plan directory for BINDPLAN resolution.
+     * Searches for a "plan" folder as sibling of the JCL parent directory or at the same level.
+     */
+    private Path detectPlanDirectory(Path jclFile) {
+        Path jclParent = jclFile.getParent();
+        if (jclParent == null) return null;
+        
+        // Try: sibling of JCL parent (e.g., project/plan/ when JCL is in project/jcl/)
+        Path grandParent = jclParent.getParent();
+        if (grandParent != null) {
+            Path candidate = grandParent.resolve("plan");
+            if (Files.isDirectory(candidate)) {
+                LOGGER.info("Found plan directory: " + candidate);
+                return candidate;
+            }
+        }
+        
+        // Try: inside JCL directory (e.g., jcl/plan/)
+        Path candidate = jclParent.resolve("plan");
+        if (Files.isDirectory(candidate)) {
+            LOGGER.info("Found plan directory: " + candidate);
+            return candidate;
+        }
+        
+        return null;
     }
 
     /**
@@ -239,6 +271,15 @@ public class WriteAggregatedJclAstTask implements AnalysisTask {
             // Extract job and steps
             context.addProperty("nodeType", "JCLExecutionContext");
             context.addProperty("status", "success");
+            
+            // Add JCL file name and stem from the parse result
+            if (jclObject.has("file") && jclObject.get("file").isJsonPrimitive()) {
+                String filePath = jclObject.get("file").getAsString();
+                String fileName = Paths.get(filePath).getFileName().toString();
+                String stem = fileName.contains(".") ? fileName.substring(0, fileName.lastIndexOf('.')) : fileName;
+                context.addProperty("name", fileName);
+                context.addProperty("stem", stem);
+            }
             
             // The jclResult structure wraps the actual JCL data in a "jcl" property
             if (jclObject.has("jcl")) {

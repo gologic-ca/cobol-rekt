@@ -88,7 +88,7 @@ class ParsedJCL:
     
     @property
     def programs(self) -> List[str]:
-        """Extract all PGM= values from parsed JCL."""
+        """Extract all PGM= values from parsed JCL, including BINDPLAN entry_points."""
         if self._programs is None:
             self._programs = []
             if self.raw_data:
@@ -105,6 +105,15 @@ class ParsedJCL:
                                 if pgm_clean and pgm_clean not in seen:
                                     seen.add(pgm_clean)
                                     self._programs.append(pgm_clean)
+                
+                # Also include entry_points from bindplans
+                for bp in self.raw_data.get('bindplans', []):
+                    entry = bp.get('entry_point', '')
+                    if entry:
+                        entry_upper = entry.strip().upper()
+                        if entry_upper and entry_upper not in seen:
+                            seen.add(entry_upper)
+                            self._programs.append(entry_upper)
         return self._programs
     
     @property
@@ -319,6 +328,12 @@ class ParsedJCL:
         if not self.raw_data:
             return []
         
+        # Index bindplans by (name, line) for correlation
+        bp_index = {}
+        for bp in self.raw_data.get('bindplans', []):
+            key = (bp.get('name', ''), bp.get('line', 0))
+            bp_index[key] = bp
+        
         detailed_steps = []
         for step in self.raw_data.get('steps', []):
             params = step.get('parameters', {})
@@ -333,13 +348,27 @@ class ParsedJCL:
                 for dd in step.get('dd_statements', [])
             ]
             
-            detailed_steps.append({
+            step_dict = {
                 'name': step.get('name', ''),
                 'program': pgm,
                 'line': step.get('line', 0),
                 'dd_count': len(dd_statements),
-                'dd_statements': dd_statements
-            })
+                'dd_statements': dd_statements,
+                'parameters': params if isinstance(params, dict) else {}
+            }
+            
+            # Enrich BINDPLAN steps with entry_point as program and include_files as obj_libs
+            step_key = (step.get('name', ''), step.get('line', 0))
+            bp = bp_index.get(step_key)
+            if bp:
+                entry_point = bp.get('entry_point', '')
+                if entry_point and not pgm:
+                    step_dict['program'] = entry_point
+                include_files = bp.get('include_files', [])
+                if include_files:
+                    step_dict['obj_libs'] = include_files
+            
+            detailed_steps.append(step_dict)
         
         return detailed_steps
 

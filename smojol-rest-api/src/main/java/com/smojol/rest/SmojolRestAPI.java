@@ -199,6 +199,7 @@ public class SmojolRestAPI {
         map.put("lines", cbl.getLines());
         map.put("copybooks", orEmpty(cbl.getCopybooks()));
         map.put("jcls", orEmpty(cbl.getJcls()));
+        map.put("plans", orEmpty(cbl.getPlans()));
         map.put("callees", orEmpty(cbl.getCallees()));
         map.put("callers", orEmpty(cbl.getCallers()));
         return map;
@@ -209,6 +210,7 @@ public class SmojolRestAPI {
         map.put("name", jcl.getName());
         map.put("jobName", jcl.getJobName());
         map.put("programs", orEmpty(jcl.getPrograms()));
+        map.put("plans", orEmpty(jcl.getPlans()));
         map.put("datasets", orEmpty(jcl.getDatasets()));
         return map;
     }

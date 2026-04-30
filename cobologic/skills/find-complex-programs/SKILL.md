@@ -22,9 +22,9 @@ compatibility: Requires smojol-rest-api running. Set COBOL_REST_URL (default htt
 > ## 🏆 Top {N} — Programmes les plus complexes
 > Métrique : **{metric}**
 >
-> | # | Programme | Score | Copybooks | Appelle | Appelé par |
-> |---|-----------|-------|-----------|---------|------------|
-> | 1 | PROG1     | 87    | 12        | 8       | 3          |
+> | # | Programme | Score | Copybooks | Appelle | Appelé par | JCL  | Plans |
+> |---|-----------|-------|-----------|---------|------------|------|-------|
+> | 1 | PROG1     | 87    | 12        | 8       | 3          | JCL1 | PLAN1 |
 >
 > 💡 **Recommandation** : Ces programmes sont prioritaires pour la documentation approfondie et le refactoring.
 

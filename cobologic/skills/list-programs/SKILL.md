@@ -18,11 +18,11 @@ compatibility: Requires smojol-rest-api running. Set COBOL_REST_URL (default htt
 
 Show as a table or list:
 
-| Programme | Copybooks | Appelé par | Appelle |
-|-----------|-----------|------------|---------|
-| NAME      | N         | ✓/✗        | ✓/✗     |
+| Programme | Copybooks | Appelé par | Appelle | JCL  | Plans |
+|-----------|-----------|------------|---------|------|-------|
+| NAME      | N         | ✓/✗        | ✓/✗     | list | list  |
 
-Include `total_found` count at the top.
+Include `total_found` count at the top. If a program has `plans`, show them inline.
 
 ## Examples
 

@@ -1,7 +1,7 @@
 ---
 name: analyze-dependencies
-description: Analyse le graphe complet de dépendances d'un programme COBOL : copybooks inclus, programmes appelés (callees), programmes appelants (callers) et JCL associés. Calcule un score de complexité. Utiliser quand l'utilisateur veut une vue complète des dépendances d'un programme ou son score de complexité.
-compatibility: Requires smojol-rest-api running. Set COBOL_REST_URL (default http://localhost:8080).
+description: "Analyse le graphe complet de dépendances d'un programme COBOL : copybooks inclus, programmes appelés (callees), programmes appelants (callers) et JCL associés. Calcule un score de complexité. Utiliser quand l'utilisateur veut une vue complète des dépendances d'un programme ou son score de complexité."
+compatibility: "Requires smojol-rest-api running. Set COBOL_REST_URL (default http://localhost:8080)."
 ---
 
 # Analyze Program Dependencies
@@ -30,6 +30,7 @@ compatibility: Requires smojol-rest-api running. Set COBOL_REST_URL (default htt
 > - ➡️ **Appelle** ({N}) : ...
 > - ⬅️ **Appelé par** ({N}) : ...
 > - 📋 **JCL** ({N}) : ...
+> - 🗄️ **Plans** ({N}) : ... (from `plans` array)
 
 ## Examples
 

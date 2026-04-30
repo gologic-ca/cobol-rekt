@@ -19,6 +19,7 @@ compatibility: Requires smojol-rest-api running. Set COBOL_REST_URL (default htt
 - **Job Name** : `jobName`
 - **Programmes exécutés** (`programs.length`) : list each program
 - **Datasets référencés** (`datasets.length`) : list each dataset
+- **Plans** (`plans.length`) : list each plan (from `plans` array)
 
 ## Examples
 

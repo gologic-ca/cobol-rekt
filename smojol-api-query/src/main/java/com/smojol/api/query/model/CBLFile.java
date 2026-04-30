@@ -61,6 +61,9 @@ public class CBLFile {
     @JsonProperty("jcls")
     private List<String> jcls;
 
+    @JsonProperty("plans")
+    private List<String> plans;
+
     @JsonProperty("parse_status")
     private ParseStatus parseStatus;
 

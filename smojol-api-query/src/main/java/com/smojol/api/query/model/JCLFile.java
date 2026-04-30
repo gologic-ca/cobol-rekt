@@ -36,6 +36,9 @@ public class JCLFile {
     @JsonProperty("programs")
     private List<String> programs;
 
+    @JsonProperty("plans")
+    private List<String> plans;
+
     @JsonProperty("datasets")
     private List<String> datasets;
 

@@ -15,9 +15,9 @@ compatibility: Requires smojol-rest-api running. Set COBOL_REST_URL (default htt
 
 ## Response Format
 
-| JCL    | Job Name | Programmes | Datasets |
-|--------|----------|------------|----------|
-| NAME   | JOBNAME  | N          | N        |
+| JCL    | Job Name | Programmes | Datasets | Plans |
+|--------|----------|------------|----------|-------|
+| NAME   | JOBNAME  | N          | N        | list  |
 
 ## Examples
 

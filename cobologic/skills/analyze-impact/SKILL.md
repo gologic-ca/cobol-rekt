@@ -25,6 +25,7 @@ compatibility: Requires smojol-rest-api running. Set COBOL_REST_URL (default htt
 ### If program:
 - `affected_programs` = `callers` array  
 - `affected_jcls` = `jcls` array
+- `affected_plans` = `plans` array (plans bound to this program)
 - `risk_level`: `callers + jcls > 5` → high, `> 2` → medium, else low
 
 ### If dataset:
@@ -43,6 +44,7 @@ compatibility: Requires smojol-rest-api running. Set COBOL_REST_URL (default htt
 >
 > **Programmes affectés** ({N}) : ...
 > **JCL affectés** ({N}) : ...
+> **Plans affectés** ({N}) : ... (if type is program, show bound plans)
 >
 > **Recommandations** :
 > - ...

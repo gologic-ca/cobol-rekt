@@ -499,7 +499,7 @@ if [[ -f "$JAR_PATH" ]] && command -v java &>/dev/null; then
             "$cbl_name.cbl" > "$ERROR_LOG" 2>&1; then
             ((AST_COUNT++))
             FILE_STATUS="✓"
-            rm "$ERROR_LOG"
+            echo "$ERROR_LOG"
         else
             # AST generation failed - create fallback AST with copybook extraction
             FILE_STATUS="✓ (partial)"

@@ -465,9 +465,11 @@ public class SimpleASTQueryService implements ASTQueryService {
             logger.info("Preload complete. Cached {} CBLs, {} Copybooks. Includes resolved.",
                 allCbls.size(), allCopybooks.size());
             
-            // Construire le graphe des callers après le chargement de tous les programmes
-            buildCallGraph();
+            // Construire l'index JCL→Programme (plans, jcls appelants)
+            buildJclProgramIndex(new ArrayList<>(allCbls.values()));
             
+            // Construire le graphe des callers après le chargement de tous les programmes
+            buildCallGraph();            
         } catch (IOException e) {
             logger.error("Error during preload: {}", e.getMessage(), e);
         }
@@ -648,19 +650,38 @@ public class SimpleASTQueryService implements ASTQueryService {
         List<JCLFile> allJcls = getAllJcl();
         
         // 2. Pour chaque programme, trouver les JCL qui le référencent
+        //    et les PLANs qui l'appellent (via bindplan entry_point matching program name)
         for (CBLFile program : programs) {
             List<String> callingJcls = new ArrayList<>();
+            List<String> callingPlans = new ArrayList<>();
             
             for (JCLFile jcl : allJcls) {
                 if (jcl.getPrograms() != null && jcl.getPrograms().contains(program.getName())) {
                     callingJcls.add(jcl.getName());
                 }
+                
+                // Check bindplan steps: if entry_point matches this program, collect the plan name
+                if (jcl.getSteps() != null) {
+                    for (JCLFile.JCLStep step : jcl.getSteps()) {
+                        if (program.getName().equalsIgnoreCase(step.getProgram())) {
+                            // This step executes our program - check if it has a plan parameter
+                            Map<String, String> params = step.getParameters();
+                            if (params != null && params.containsKey("PLAN")) {
+                                String planName = params.get("PLAN");
+                                if (planName != null && !planName.isEmpty() && !callingPlans.contains(planName)) {
+                                    callingPlans.add(planName);
+                                }
+                            }
+                        }
+                    }
+                }
             }
             
-            // 3. Mettre à jour le programme avec ses JCL appelants
+            // 3. Mettre à jour le programme avec ses JCL appelants et plans
             program.setJcls(callingJcls);
-            logger.debug("Program {} is called by {} JCL(s): {}", 
-                program.getName(), callingJcls.size(), callingJcls);
+            program.setPlans(callingPlans);
+            logger.debug("Program {} is called by {} JCL(s): {}, {} plan(s): {}", 
+                program.getName(), callingJcls.size(), callingJcls, callingPlans.size(), callingPlans);
         }
         
         logger.info("JCL→Program index built: {} programs indexed", programs.size());

@@ -135,6 +135,19 @@ public class JclParserService {
      * @throws JclParsingException if parsing fails
      */
     public JclParseResult parseJclFile(Path jclFilePath) throws JclParsingException {
+        return parseJclFile(jclFilePath, null);
+    }
+
+    /**
+     * Parse a JCL file and return the parsed structure, with an optional plan base path
+     * for BINDPLAN resolution.
+     *
+     * @param jclFilePath path to the JCL file
+     * @param planBasePath optional path to the directory containing plan files (e.g., CBEXP.txt)
+     * @return JclParseResult containing the parsed structure
+     * @throws JclParsingException if parsing fails
+     */
+    public JclParseResult parseJclFile(Path jclFilePath, Path planBasePath) throws JclParsingException {
         if (!Files.exists(jclFilePath)) {
             throw new JclParsingException("JCL file not found: " + jclFilePath);
         }
@@ -142,12 +155,19 @@ public class JclParserService {
         LOGGER.info("Parsing JCL file: " + jclFilePath);
         
         try {
-            // Build the process
-            ProcessBuilder processBuilder = new ProcessBuilder(
-                    pythonExecutable,
-                    pythonScriptPath.toAbsolutePath().toString(),
-                    jclFilePath.toAbsolutePath().toString()
-            );
+            // Build the process command
+            java.util.List<String> command = new java.util.ArrayList<>();
+            command.add(pythonExecutable);
+            command.add(pythonScriptPath.toAbsolutePath().toString());
+            command.add(jclFilePath.toAbsolutePath().toString());
+            
+            // Add plan base path if provided
+            if (planBasePath != null && Files.exists(planBasePath)) {
+                command.add(planBasePath.toAbsolutePath().toString());
+                LOGGER.info("Using plan base path: " + planBasePath);
+            }
+            
+            ProcessBuilder processBuilder = new ProcessBuilder(command);
             
             processBuilder.redirectErrorStream(true);
             
