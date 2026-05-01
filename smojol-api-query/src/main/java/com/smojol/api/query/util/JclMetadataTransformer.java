@@ -88,12 +88,24 @@ public class JclMetadataTransformer {
             parameters.put(entry.getKey(), entry.getValue() != null ? entry.getValue().toString() : "");
         }
 
+        // Extraire obj_libs (OBJLIB includes from BINDPLAN)
+        List<String> objLibs = new java.util.ArrayList<>();
+        Object objLibsObj = stepData.get("obj_libs");
+        if (objLibsObj instanceof List) {
+            for (Object item : (List<?>) objLibsObj) {
+                if (item != null) {
+                    objLibs.add(item.toString());
+                }
+            }
+        }
+
         return JCLFile.JCLStep.builder()
                 .name(stepName)
                 .program(programName)
                 .ddStatements(ddStatements)
                 .datasets(datasets)
                 .parameters(parameters)
+                .objLibs(objLibs)
                 .build();
     }
 

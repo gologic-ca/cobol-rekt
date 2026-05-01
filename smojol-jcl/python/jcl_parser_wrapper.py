@@ -13,20 +13,20 @@ from jcl_preprocessing import preprocess_jcl_continuations, fix_jcl_parameters_i
 def _detect_plan_directory(jcl_file_path: str) -> str:
     """
     Auto-detect the plan directory relative to the JCL file.
-    Looks for a 'plan' folder at the same level or parent level as the JCL directory.
+    Looks for a 'MLLOT' (case-insensitive) folder at the same level or parent level as the JCL directory.
     """
     jcl_path = Path(jcl_file_path)
     jcl_parent = jcl_path.parent
     
-    # Try: sibling of JCL parent (e.g., project/plan/ when JCL is in project/jcl/)
-    potential = jcl_parent.parent / "plan"
-    if potential.exists():
-        return str(potential)
+    # Try: sibling of JCL parent (e.g., project/MLLOT/ when JCL is in project/jcl/)
+    for candidate in jcl_parent.parent.iterdir() if jcl_parent.parent.exists() else []:
+        if candidate.is_dir() and candidate.name.lower() == "mllot":
+            return str(candidate)
     
-    # Try: inside JCL directory (e.g., jcl/plan/)
-    potential = jcl_parent / "plan"
-    if potential.exists():
-        return str(potential)
+    # Try: inside JCL directory (e.g., jcl/MLLOT/)
+    for candidate in jcl_parent.iterdir():
+        if candidate.is_dir() and candidate.name.lower() == "mllot":
+            return str(candidate)
     
     return None
 

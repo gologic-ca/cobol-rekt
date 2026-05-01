@@ -128,5 +128,8 @@ public class JCLFile {
 
         @JsonProperty("parameters")
         private Map<String, String> parameters;
+
+        @JsonProperty("obj_libs")
+        private List<String> objLibs;
     }
 }

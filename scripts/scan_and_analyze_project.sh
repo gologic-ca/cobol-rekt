@@ -10,22 +10,36 @@
 # 4. Builds dependency graph from ASTs and JCL relationships
 #
 # Usage:
+#   # Named parameters (supports multiple directories per type, comma-separated)
+#   bash scripts/scan_and_analyze_project.sh --cbl dir1,dir2 --jcl dir1,dir2 --cpy dir1,dir2 -o output [options]
+#
+#   # Legacy: Modular (auto-detect app-*/cbl/ structure)
 #   bash scripts/scan_and_analyze_project.sh <root_dir> [output_dir] [options]
+#
+#   # Legacy: Flat (single directory per type)
 #   bash scripts/scan_and_analyze_project.sh <cobol_dir> <jcl_dir> <cpy_dir> [output_dir] [options]
 #
-# Modes:
-#   • MODULAR:  Supports app-*/cbl/, app-*/jcl/, app-*/cpy/ structure
-#   • FLAT:     Supports separate cbl/, jcl/, cpy/ directories (legacy)
+# Named Parameters:
+#   --cbl <dirs>      Comma-separated list of COBOL source directories
+#   --jcl <dirs>      Comma-separated list of JCL directories
+#   --cpy <dirs>      Comma-separated list of copybook directories
+#   -o, --output      Output directory (default: ./out)
 #
 # Options:
 #   -g, --graph       Generate dependency graphs (JSON + SVG) - disabled by default
 #   -m, --metrics     Generate performance metrics report - disabled by default
 #
-# Example:
+# Examples:
+#   # Multiple directories per type
+#   bash scripts/scan_and_analyze_project.sh --cbl app1/cbl,app2/cbl --jcl jcl/,jcl2/ --cpy cpy/,cpy-bms/ -o ./out
+#
+#   # Single directories (equivalent to flat mode)
+#   bash scripts/scan_and_analyze_project.sh --cbl src/cobol --jcl src/jcl --cpy src/cpy -o ./out
+#
 #   # Modular structure (auto-detect)
 #   bash scripts/scan_and_analyze_project.sh /path/to/aws-mainframe ./out
 #
-#   # Flat structure
+#   # Flat structure (legacy)
 #   bash scripts/scan_and_analyze_project.sh app/cbl app/jcl app/cpy ./out -g -m
 ################################################################################
 
@@ -40,94 +54,174 @@ NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-# Arguments
-ROOT_DIR="$1"
+# Arrays for multiple directories
+declare -a CBL_DIRS=()
+declare -a JCL_DIRS=()
+declare -a CPY_DIRS=()
 OUTPUT_DIR=""
-COBOL_DIR=""
-JCL_DIR=""
-CPY_DIR=""
-
-# Detect mode: modular or flat
-# Modular: app-module1/cbl, app-module1/jcl, app-module1/cpy
-# Flat: cbl/, jcl/, cpy/ directories
-if [[ -z "$ROOT_DIR" ]]; then
-    echo -e "${RED}ERROR: Missing root directory${NC}"
-    exit 1
-fi
-
-# Check if this is a flat structure (all 3 different args provided AND they're actual cbl/jcl/cpy dirs)
-if [[ -n "$2" ]] && [[ -n "$3" ]] && [[ ! "$2" =~ ^- ]] && [[ ! "$3" =~ ^- ]] && \
-   [[ "$1" != "$2" || "$2" != "$3" ]]; then
-    # Arguments are different: probably cbl_dir, jcl_dir, cpy_dir
-    # Verify they contain the expected files
-    cbl_in_arg1=$(find "$1" -maxdepth 1 -name "*.cbl" -type f 2>/dev/null | wc -l)
-    jcl_in_arg2=$(find "$2" -maxdepth 1 -name "*.jcl" -type f 2>/dev/null | wc -l)
-    cpy_in_arg3=$(find "$3" -maxdepth 1 -name "*.cpy" -type f 2>/dev/null | wc -l)
-    
-    if [[ $cbl_in_arg1 -gt 0 ]] || [[ $jcl_in_arg2 -gt 0 ]] || [[ $cpy_in_arg3 -gt 0 ]]; then
-        # FLAT MODE: explicit cbl, jcl, cpy directories
-        COBOL_DIR="$1"
-        JCL_DIR="$2"
-        CPY_DIR="$3"
-        OUTPUT_DIR="${4:-./out}"
-        MODE="FLAT"
-    else
-        # Arguments are different but don't look like cbl/jcl/cpy dirs
-        # Fall back to MODULAR
-        COBOL_DIR="$1"
-        JCL_DIR="$1"
-        CPY_DIR="$1"
-        OUTPUT_DIR="${2:-./out}"
-        MODE="MODULAR"
-    fi
-else
-    # Only 1 argument or identical arguments: MODULAR MODE
-    COBOL_DIR="$1"
-    JCL_DIR="$1"
-    CPY_DIR="$1"
-    OUTPUT_DIR="${2:-./out}"
-    MODE="MODULAR"
-    
-    # If 3 identical args and a 4th arg, use that as output
-    if [[ -n "$4" ]] && [[ ! "$4" =~ ^- ]]; then
-        OUTPUT_DIR="$4"
-    fi
-fi
-
-# Parse optional flags (disabled by default)
 GENERATE_GRAPHS=false
 GENERATE_METRICS=false
+MODE=""
 
-# Determine which argument to start parsing flags from
-if [[ "$MODE" == "FLAT" ]]; then
-    START_ARG=5  # cbl_dir jcl_dir cpy_dir output_dir [flags...]
-else
-    # MODULAR: check if arg 3 is the output dir (then flags start at arg 4)
-    # or if arg 3 is a flag (then flags start at arg 3)
-    if [[ -n "$3" ]] && [[ "$3" =~ ^- ]]; then
-        START_ARG=3
-    elif [[ -n "$4" ]] && [[ "$4" =~ ^- ]]; then
-        START_ARG=4
-    else
-        START_ARG=5  # Fallback for edge cases
+# ============================================================================
+# ARGUMENT PARSING
+# ============================================================================
+
+# Detect if named parameters are used (--cbl, --jcl, --cpy)
+USES_NAMED_PARAMS=false
+for arg in "$@"; do
+    if [[ "$arg" == "--cbl" ]] || [[ "$arg" == "--jcl" ]] || [[ "$arg" == "--cpy" ]]; then
+        USES_NAMED_PARAMS=true
+        break
     fi
-fi
-
-for arg in "${@:$START_ARG}"; do
-    case "$arg" in
-        -g|--graph)
-            GENERATE_GRAPHS=true
-            ;;
-        -m|--metrics)
-            GENERATE_METRICS=true
-            ;;
-    esac
 done
 
-# Validate inputs
-[[ -d "$COBOL_DIR" ]] || { echo -e "${RED}ERROR: COBOL directory not found: $COBOL_DIR${NC}"; exit 1; }
-[[ -d "$JCL_DIR" ]] || { echo -e "${RED}ERROR: JCL directory not found: $JCL_DIR${NC}"; exit 1; }
-[[ -d "$CPY_DIR" ]] || { echo -e "${RED}ERROR: Copybook directory not found: $CPY_DIR${NC}"; exit 1; }
+if [[ "$USES_NAMED_PARAMS" == "true" ]]; then
+    # ========================================================================
+    # NAMED PARAMETER MODE: --cbl dir1,dir2 --jcl dir1,dir2 --cpy dir1,dir2
+    # ========================================================================
+    MODE="MULTI"
+    
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --cbl)
+                shift
+                IFS=',' read -ra _dirs <<< "$1"
+                for d in "${_dirs[@]}"; do
+                    [[ -n "$d" ]] && CBL_DIRS+=("$d")
+                done
+                ;;
+            --jcl)
+                shift
+                IFS=',' read -ra _dirs <<< "$1"
+                for d in "${_dirs[@]}"; do
+                    [[ -n "$d" ]] && JCL_DIRS+=("$d")
+                done
+                ;;
+            --cpy)
+                shift
+                IFS=',' read -ra _dirs <<< "$1"
+                for d in "${_dirs[@]}"; do
+                    [[ -n "$d" ]] && CPY_DIRS+=("$d")
+                done
+                ;;
+            -o|--output)
+                shift
+                OUTPUT_DIR="$1"
+                ;;
+            -g|--graph)
+                GENERATE_GRAPHS=true
+                ;;
+            -m|--metrics)
+                GENERATE_METRICS=true
+                ;;
+            *)
+                echo -e "${YELLOW}Warning: Unknown argument: $1${NC}"
+                ;;
+        esac
+        shift
+    done
+    
+    OUTPUT_DIR="${OUTPUT_DIR:-./out}"
+    
+    # Validate at least CBL dirs provided
+    if [[ ${#CBL_DIRS[@]} -eq 0 ]]; then
+        echo -e "${RED}ERROR: No COBOL directories specified (use --cbl dir1,dir2)${NC}"
+        exit 1
+    fi
+    
+else
+    # ========================================================================
+    # LEGACY POSITIONAL MODE (backward compatible)
+    # ========================================================================
+    
+    ROOT_DIR="$1"
+    
+    if [[ -z "$ROOT_DIR" ]]; then
+        echo -e "${RED}ERROR: Missing root directory${NC}"
+        echo ""
+        echo "Usage:"
+        echo "  # Named parameters (multiple dirs per type):"
+        echo "  $0 --cbl dir1,dir2 --jcl dir1,dir2 --cpy dir1,dir2 -o output [options]"
+        echo ""
+        echo "  # Legacy positional (single dir per type):"
+        echo "  $0 <root_dir> [output_dir] [options]"
+        echo "  $0 <cobol_dir> <jcl_dir> <cpy_dir> [output_dir] [options]"
+        exit 1
+    fi
+    
+    # Check if this is a flat structure (all 3 different args provided)
+    if [[ -n "$2" ]] && [[ -n "$3" ]] && [[ ! "$2" =~ ^- ]] && [[ ! "$3" =~ ^- ]] && \
+       [[ "$1" != "$2" || "$2" != "$3" ]]; then
+        cbl_in_arg1=$(find "$1" -maxdepth 1 -iname "*.cbl" -type f 2>/dev/null | wc -l)
+        jcl_in_arg2=$(find "$2" -maxdepth 1 -iname "*.jcl" -type f 2>/dev/null | wc -l)
+        cpy_in_arg3=$(find "$3" -maxdepth 1 -iname "*.cpy" -type f 2>/dev/null | wc -l)
+        
+        if [[ $cbl_in_arg1 -gt 0 ]] || [[ $jcl_in_arg2 -gt 0 ]] || [[ $cpy_in_arg3 -gt 0 ]]; then
+            CBL_DIRS=("$1")
+            JCL_DIRS=("$2")
+            CPY_DIRS=("$3")
+            OUTPUT_DIR="${4:-./out}"
+            MODE="FLAT"
+        else
+            CBL_DIRS=("$1")
+            JCL_DIRS=("$1")
+            CPY_DIRS=("$1")
+            OUTPUT_DIR="${2:-./out}"
+            MODE="MODULAR"
+        fi
+    else
+        CBL_DIRS=("$1")
+        JCL_DIRS=("$1")
+        CPY_DIRS=("$1")
+        OUTPUT_DIR="${2:-./out}"
+        MODE="MODULAR"
+        
+        if [[ -n "$4" ]] && [[ ! "$4" =~ ^- ]]; then
+            OUTPUT_DIR="$4"
+        fi
+    fi
+    
+    # Parse optional flags from remaining positional args
+    if [[ "$MODE" == "FLAT" ]]; then
+        START_ARG=5
+    else
+        if [[ -n "$3" ]] && [[ "$3" =~ ^- ]]; then
+            START_ARG=3
+        elif [[ -n "$4" ]] && [[ "$4" =~ ^- ]]; then
+            START_ARG=4
+        else
+            START_ARG=5
+        fi
+    fi
+    
+    for arg in "${@:$START_ARG}"; do
+        case "$arg" in
+            -g|--graph)
+                GENERATE_GRAPHS=true
+                ;;
+            -m|--metrics)
+                GENERATE_METRICS=true
+                ;;
+        esac
+    done
+fi
+
+# For convenience, keep a single "primary" reference for each type (first dir in list)
+COBOL_DIR="${CBL_DIRS[0]}"
+JCL_DIR="${JCL_DIRS[0]:-}"
+CPY_DIR="${CPY_DIRS[0]:-}"
+
+# Validate inputs: all specified directories must exist
+for dir in "${CBL_DIRS[@]}"; do
+    [[ -d "$dir" ]] || { echo -e "${RED}ERROR: COBOL directory not found: $dir${NC}"; exit 1; }
+done
+for dir in "${JCL_DIRS[@]}"; do
+    [[ -d "$dir" ]] || { echo -e "${RED}ERROR: JCL directory not found: $dir${NC}"; exit 1; }
+done
+for dir in "${CPY_DIRS[@]}"; do
+    [[ -d "$dir" ]] || { echo -e "${RED}ERROR: Copybook directory not found: $dir${NC}"; exit 1; }
+done
 
 mkdir -p "$OUTPUT_DIR"
 
@@ -142,7 +236,9 @@ echo ""
 
 echo -e "${BLUE}[Step 1/4] Scanning project structure${NC}"
 echo "  Mode:       $MODE"
-echo "  Root:       $COBOL_DIR"
+echo "  CBL dirs:   ${CBL_DIRS[*]}"
+echo "  JCL dirs:   ${JCL_DIRS[*]:-<none>}"
+echo "  CPY dirs:   ${CPY_DIRS[*]:-<none>}"
 echo "  Output:     $OUTPUT_DIR"
 echo ""
 
@@ -152,82 +248,95 @@ declare -A CBL_MODULE_MAP # Map: CBL_NAME -> MODULE_PATH
 
 if [[ "$MODE" == "MODULAR" ]]; then
     # Find all CBL files in modular structure (app-*/cbl/, cbl/)
-    for cbl_file in $(find "$COBOL_DIR" -path "*/cbl/*.cbl" -type f); do
-        cbl_name=$(basename "$cbl_file" .cbl)
-        # Extract module path (e.g., /path/to/app-module1 from /path/to/app-module1/cbl/file.cbl)
-        module_path=$(echo "$cbl_file" | sed 's|/cbl/[^/]*$||')
-        CBL_FILES_MAP["$cbl_file"]="$module_path"
-        CBL_MODULE_MAP["$cbl_name"]="$module_path"
+    for cbl_dir in "${CBL_DIRS[@]}"; do
+        for cbl_file in $(find "$cbl_dir" -ipath "*/cbl/*.cbl" -type f); do
+            cbl_name=$(basename "$cbl_file" | sed 's/\.[cC][bB][lL]$//')
+            module_path=$(echo "$cbl_file" | sed 's|/cbl/[^/]*$||')
+            CBL_FILES_MAP["$cbl_file"]="$module_path"
+            CBL_MODULE_MAP["$cbl_name"]="$module_path"
+        done
     done
 else
-    # Find all CBL files in flat structure
-    for cbl_file in $(find "$COBOL_DIR" -maxdepth 1 -name "*.cbl" -type f); do
-        cbl_name=$(basename "$cbl_file" .cbl)
-        CBL_FILES_MAP["$cbl_file"]="$COBOL_DIR"
-        CBL_MODULE_MAP["$cbl_name"]="$COBOL_DIR"
+    # FLAT or MULTI mode: find CBL files in all specified directories
+    for cbl_dir in "${CBL_DIRS[@]}"; do
+        for cbl_file in $(find "$cbl_dir" -maxdepth 1 -iname "*.cbl" -type f); do
+            cbl_name=$(basename "$cbl_file" | sed 's/\.[cC][bB][lL]$//')
+            CBL_FILES_MAP["$cbl_file"]="$cbl_dir"
+            CBL_MODULE_MAP["$cbl_name"]="$cbl_dir"
+        done
     done
 fi
 
 CBL_COUNT=${#CBL_FILES_MAP[@]}
 
-# Count JCL files
-JCL_COUNT=$(find "$JCL_DIR" -name "*.jcl" -type f 2>/dev/null | wc -l)
+# Count JCL files across all JCL directories
+JCL_COUNT=0
+for jcl_dir in "${JCL_DIRS[@]}"; do
+    dir_jcl_count=$(find "$jcl_dir" -iname "*.jcl" -type f 2>/dev/null | wc -l)
+    ((JCL_COUNT += dir_jcl_count))
+done
 
 # ============================================================================
 # DISCOVER ALL COPYBOOK DIRECTORIES
 # ============================================================================
-# Look for additional copybook directories like cpy-bms, cpy-sql, etc.
-# These contain BMS maps, SQL includes, and other generated copybooks
+# Aggregate all copybook files from specified CPY_DIRS (and auto-discover
+# additional cpy-* directories in MODULAR mode)
 
 declare -a ALL_CPY_DIRS
 AGGREGATED_CPY_DIR=""
 
-# Determine the parent directory to search for copybook directories
-if [[ "$MODE" == "FLAT" ]]; then
-    # For flat mode, look in the parent of the cpy directory
-    CPY_PARENT_DIR=$(dirname "$CPY_DIR")
-else
-    # For modular mode, CPY_DIR is the root, look there
-    CPY_PARENT_DIR="$CPY_DIR"
-fi
-
-# Find all directories that might contain copybooks
-# Pattern: cpy, cpy-*, copy, copybook*, include*
-echo "  Scanning for copybook directories..."
-
-# First, add the main CPY_DIR if it contains copybooks (case-insensitive)
-main_cpy_count=$(find "$CPY_DIR" -maxdepth 1 \( -iname "*.cpy" -o -iname "*.copy" \) -type f 2>/dev/null | head -1)
-if [[ -n "$main_cpy_count" ]]; then
-    ALL_CPY_DIRS+=("$CPY_DIR")
-fi
-
-# Search for all copybook directories recursively (cpy, cpy-bms, cpy-sql, etc.)
-# Use deeper search to find copybooks in module subdirectories
-while IFS= read -r -d '' dir; do
-    # Skip if it's the main CPY_DIR (already added)
-    [[ "$dir" == "$CPY_DIR" ]] && continue
+if [[ "$MODE" == "MULTI" ]] || [[ "$MODE" == "FLAT" ]]; then
+    # Explicit directories: use them directly
+    ALL_CPY_DIRS=("${CPY_DIRS[@]}")
     
-    # Check if directory contains .cpy or .CPY files (case-insensitive)
-    cpy_in_dir=$(find "$dir" -maxdepth 1 \( -iname "*.cpy" -o -iname "*.copy" \) -type f 2>/dev/null | head -1)
-    if [[ -n "$cpy_in_dir" ]]; then
-        ALL_CPY_DIRS+=("$dir")
-    fi
-done < <(find "$CPY_PARENT_DIR" -type d \( -iname "cpy" -o -iname "cpy-*" -o -iname "copy" -o -iname "copybook*" -o -iname "include*" \) -print0 2>/dev/null)
-
-# Also check for copybooks without extension (common in mainframe projects)
-while IFS= read -r -d '' dir; do
-    [[ "$dir" == "$CPY_DIR" ]] && continue
-    # Already in list?
-    for existing in "${ALL_CPY_DIRS[@]}"; do
-        [[ "$existing" == "$dir" ]] && continue 2
+    # Also discover additional cpy-* subdirectories within each specified dir's parent
+    for cpy_dir in "${CPY_DIRS[@]}"; do
+        CPY_PARENT_DIR=$(dirname "$cpy_dir")
+        while IFS= read -r -d '' dir; do
+            [[ "$dir" == "$cpy_dir" ]] && continue
+            # Already in list?
+            for existing in "${ALL_CPY_DIRS[@]}"; do
+                [[ "$existing" == "$dir" ]] && continue 2
+            done
+            cpy_in_dir=$(find "$dir" -maxdepth 1 \( -iname "*.cpy" -o -iname "*.copy" \) -type f 2>/dev/null | head -1)
+            if [[ -n "$cpy_in_dir" ]]; then
+                ALL_CPY_DIRS+=("$dir")
+            fi
+        done < <(find "$CPY_PARENT_DIR" -type d \( -iname "cpy-*" \) -print0 2>/dev/null)
     done
+else
+    # MODULAR mode: auto-discover from root
+    CPY_PARENT_DIR="${CPY_DIRS[0]}"
     
-    # Check for files that look like copybooks (no extension, uppercase names)
-    potential_cpy=$(find "$dir" -maxdepth 1 -type f ! -name "*.*" -name "[A-Z]*" 2>/dev/null | head -1)
-    if [[ -n "$potential_cpy" ]]; then
-        ALL_CPY_DIRS+=("$dir")
+    # Add main CPY_DIR if it contains copybooks
+    main_cpy_count=$(find "$CPY_DIR" -maxdepth 1 \( -iname "*.cpy" -o -iname "*.copy" \) -type f 2>/dev/null | head -1)
+    if [[ -n "$main_cpy_count" ]]; then
+        ALL_CPY_DIRS+=("$CPY_DIR")
     fi
-done < <(find "$CPY_PARENT_DIR" -type d \( -iname "cpy" -o -iname "cpy-*" -o -iname "copy" -o -iname "copybook*" \) -print0 2>/dev/null)
+    
+    # Search for all copybook directories recursively
+    while IFS= read -r -d '' dir; do
+        [[ "$dir" == "$CPY_DIR" ]] && continue
+        cpy_in_dir=$(find "$dir" -maxdepth 1 \( -iname "*.cpy" -o -iname "*.copy" \) -type f 2>/dev/null | head -1)
+        if [[ -n "$cpy_in_dir" ]]; then
+            ALL_CPY_DIRS+=("$dir")
+        fi
+    done < <(find "$CPY_PARENT_DIR" -type d \( -iname "cpy" -o -iname "cpy-*" -o -iname "copy" -o -iname "copybook*" -o -iname "include*" \) -print0 2>/dev/null)
+    
+    # Also check for copybooks without extension
+    while IFS= read -r -d '' dir; do
+        [[ "$dir" == "$CPY_DIR" ]] && continue
+        for existing in "${ALL_CPY_DIRS[@]}"; do
+            [[ "$existing" == "$dir" ]] && continue 2
+        done
+        potential_cpy=$(find "$dir" -maxdepth 1 -type f ! -name "*.*" -name "[A-Z]*" 2>/dev/null | head -1)
+        if [[ -n "$potential_cpy" ]]; then
+            ALL_CPY_DIRS+=("$dir")
+        fi
+    done < <(find "$CPY_PARENT_DIR" -type d \( -iname "cpy" -o -iname "cpy-*" -o -iname "copy" -o -iname "copybook*" \) -print0 2>/dev/null)
+fi
+
+echo "  Scanning for copybook directories..."
 
 # Count total copybooks across all directories
 CPY_COUNT=0
@@ -236,7 +345,7 @@ for cpy_dir in "${ALL_CPY_DIRS[@]}"; do
     ((CPY_COUNT += dir_count))
 done
 
-# If multiple copybook directories found, aggregate them
+# Aggregate all copybook directories into a single temp directory for the parser
 if [[ ${#ALL_CPY_DIRS[@]} -gt 1 ]]; then
     AGGREGATED_CPY_DIR=$(mktemp -d)
     echo "  Found ${#ALL_CPY_DIRS[@]} copybook directories:"
@@ -244,20 +353,27 @@ if [[ ${#ALL_CPY_DIRS[@]} -gt 1 ]]; then
         dir_name=$(basename "$cpy_dir")
         dir_count=$(find "$cpy_dir" -maxdepth 1 \( -iname "*.cpy" -o -iname "*.copy" -o \( -type f ! -name "*.*" -name "[A-Z]*" \) \) 2>/dev/null | wc -l)
         echo "    • $dir_name/ ($dir_count files)"
-        # Copy all copybooks to aggregated directory (case-insensitive)
         find "$cpy_dir" -maxdepth 1 \( -iname "*.cpy" -o -iname "*.copy" -o \( -type f ! -name "*.*" -name "[A-Z]*" \) \) -exec cp {} "$AGGREGATED_CPY_DIR/" \; 2>/dev/null
     done
-    # Update CPY_DIR to point to aggregated directory
     ORIGINAL_CPY_DIR="$CPY_DIR"
     CPY_DIR="$AGGREGATED_CPY_DIR"
 elif [[ ${#ALL_CPY_DIRS[@]} -eq 1 ]]; then
     echo "  Found 1 copybook directory: $(basename "${ALL_CPY_DIRS[0]}")/"
+    CPY_DIR="${ALL_CPY_DIRS[0]}"
 elif [[ ${#ALL_CPY_DIRS[@]} -eq 0 ]]; then
-    # Fallback: search recursively for any .cpy files
-    CPY_COUNT=$(find "$CPY_PARENT_DIR" -iname "*.cpy" -o -iname "*.copy" -type f 2>/dev/null | wc -l)
-    if [[ $CPY_COUNT -gt 0 ]]; then
-        AGGREGATED_CPY_DIR=$(mktemp -d)
-        find "$CPY_PARENT_DIR" \( -iname "*.cpy" -o -iname "*.copy" \) -type f -exec cp {} "$AGGREGATED_CPY_DIR/" \; 2>/dev/null
+    # Fallback: search recursively for any .cpy files in all CPY_DIRS parents
+    for cpy_dir in "${CPY_DIRS[@]}"; do
+        parent_dir=$(dirname "$cpy_dir")
+        fallback_count=$(find "$parent_dir" -iname "*.cpy" -o -iname "*.copy" -type f 2>/dev/null | wc -l)
+        if [[ $fallback_count -gt 0 ]]; then
+            if [[ -z "$AGGREGATED_CPY_DIR" ]]; then
+                AGGREGATED_CPY_DIR=$(mktemp -d)
+            fi
+            find "$parent_dir" \( -iname "*.cpy" -o -iname "*.copy" \) -type f -exec cp {} "$AGGREGATED_CPY_DIR/" \; 2>/dev/null
+            ((CPY_COUNT += fallback_count))
+        fi
+    done
+    if [[ -n "$AGGREGATED_CPY_DIR" ]]; then
         CPY_DIR="$AGGREGATED_CPY_DIR"
         echo "  Found $CPY_COUNT copybooks (scattered across directories)"
     fi
@@ -307,14 +423,41 @@ fi
 
 if [[ -n "$PYTHON_CMD" ]] && [[ -f "$JCL_ANALYSIS_SCRIPT" ]]; then
     # Convert paths to Windows format for Python if on Windows/Git Bash
-    PYTHON_JCL_DIR="$JCL_DIR"
-    PYTHON_COBOL_DIR="$COBOL_DIR"
+    # For multiple JCL dirs, aggregate into a temp directory for the Python script
+    PYTHON_JCL_DIR=""
+    TEMP_JCL_AGGREGATE=""
     
-    if [[ "$JCL_DIR" =~ ^/c/ ]]; then
-        PYTHON_JCL_DIR=$(echo "$JCL_DIR" | sed 's|^/c/|C:/|' | sed 's|/|\\|g')
+    if [[ ${#JCL_DIRS[@]} -gt 1 ]]; then
+        # Multiple JCL dirs: aggregate into temp directory
+        TEMP_JCL_AGGREGATE=$(mktemp -d)
+        for jcl_d in "${JCL_DIRS[@]}"; do
+            find "$jcl_d" -iname "*.jcl" -type f -exec cp {} "$TEMP_JCL_AGGREGATE/" \; 2>/dev/null
+        done
+        PYTHON_JCL_DIR="$TEMP_JCL_AGGREGATE"
+    else
+        PYTHON_JCL_DIR="${JCL_DIRS[0]:-}"
     fi
-    if [[ "$COBOL_DIR" =~ ^/c/ ]]; then
-        PYTHON_COBOL_DIR=$(echo "$COBOL_DIR" | sed 's|^/c/|C:/|' | sed 's|/|\\|g')
+    
+    # Similarly aggregate COBOL dirs for the Python script
+    PYTHON_COBOL_DIR=""
+    TEMP_CBL_AGGREGATE=""
+    
+    if [[ ${#CBL_DIRS[@]} -gt 1 ]]; then
+        TEMP_CBL_AGGREGATE=$(mktemp -d)
+        for cbl_d in "${CBL_DIRS[@]}"; do
+            find "$cbl_d" -iname "*.cbl" -type f -exec cp {} "$TEMP_CBL_AGGREGATE/" \; 2>/dev/null
+        done
+        PYTHON_COBOL_DIR="$TEMP_CBL_AGGREGATE"
+    else
+        PYTHON_COBOL_DIR="${CBL_DIRS[0]}"
+    fi
+    
+    # Windows path conversion
+    if [[ "$PYTHON_JCL_DIR" =~ ^/c/ ]]; then
+        PYTHON_JCL_DIR=$(echo "$PYTHON_JCL_DIR" | sed 's|^/c/|C:/|' | sed 's|/|\\|g')
+    fi
+    if [[ "$PYTHON_COBOL_DIR" =~ ^/c/ ]]; then
+        PYTHON_COBOL_DIR=$(echo "$PYTHON_COBOL_DIR" | sed 's|^/c/|C:/|' | sed 's|/|\\|g')
     fi
     
     # Use Python script for accurate JCL-COBOL matching via PGM= extraction
@@ -343,6 +486,10 @@ if [[ -n "$PYTHON_CMD" ]] && [[ -f "$JCL_ANALYSIS_SCRIPT" ]]; then
         echo "{}" > "$MAPPINGS_FILE"
         MAPPED=0
     fi
+    
+    # Clean up temporary aggregate directories
+    [[ -n "$TEMP_JCL_AGGREGATE" && -d "$TEMP_JCL_AGGREGATE" ]] && rm -rf "$TEMP_JCL_AGGREGATE"
+    [[ -n "$TEMP_CBL_AGGREGATE" && -d "$TEMP_CBL_AGGREGATE" ]] && rm -rf "$TEMP_CBL_AGGREGATE"
 else
     if [[ -z "$PYTHON_CMD" ]]; then
         echo -e "${YELLOW}  Warning: Python not found${NC}"
@@ -418,7 +565,8 @@ if [[ -f "$JAR_PATH" ]] && command -v java &>/dev/null; then
     for cbl_file in "${!CBL_FILES_MAP[@]}"; do
         if [[ ! -f "$cbl_file" ]]; then continue; fi
         
-        cbl_name=$(basename "$cbl_file" .cbl)
+        cbl_basename=$(basename "$cbl_file")
+        cbl_name=$(echo "$cbl_basename" | sed 's/\.[cC][bB][lL]$//')
         cbl_name_upper=$(echo "$cbl_name" | tr '[:lower:]' '[:upper:]')
         module_path="${CBL_FILES_MAP[$cbl_file]}"
         
@@ -437,8 +585,8 @@ if [[ -f "$JAR_PATH" ]] && command -v java &>/dev/null; then
         TEMP_CPY_DIR=""
         
         # Step 2: Find JCL for this file (optional)
-        # Priority: module's jcl/ > mappings > global jcl/
-        PROGRAM_JCL_DIR="$JCL_DIR"
+        # Priority: module's jcl/ > mappings > all JCL_DIRS
+        PROGRAM_JCL_DIR="${JCL_DIRS[0]:-}"
         TEMP_PROGRAM_JCL_DIR=""
         JCL_FOUND=0
         
@@ -446,7 +594,7 @@ if [[ -f "$JAR_PATH" ]] && command -v java &>/dev/null; then
             MODULE_JCL_DIR="$module_path/jcl"
             if [[ -d "$MODULE_JCL_DIR" ]]; then
                 # Check for matching JCL file in module
-                matching_jcl=$(find "$MODULE_JCL_DIR" -iname "*$cbl_name*" -name "*.jcl" -type f 2>/dev/null | head -1)
+                matching_jcl=$(find "$MODULE_JCL_DIR" -iname "*$cbl_name*" -iname "*.jcl" -type f 2>/dev/null | head -1)
                 if [[ -f "$matching_jcl" ]]; then
                     TEMP_PROGRAM_JCL_DIR=$(mktemp -d)
                     cp "$matching_jcl" "$TEMP_PROGRAM_JCL_DIR/" 2>/dev/null
@@ -456,20 +604,36 @@ if [[ -f "$JAR_PATH" ]] && command -v java &>/dev/null; then
             fi
         fi
         
-        # If no module JCL, check global mappings
+        # If no module JCL, check global mappings (search across all JCL_DIRS)
         if [[ $JCL_FOUND -eq 0 ]] && [[ -n "${JCL_MAPPINGS[$cbl_name_upper]}" ]]; then
             TEMP_PROGRAM_JCL_DIR=$(mktemp -d)
             IFS='|' read -ra jcl_files <<< "${JCL_MAPPINGS[$cbl_name_upper]}"
             
             for jcl_file_path in "${jcl_files[@]}"; do
-                full_jcl_path="$JCL_DIR/$jcl_file_path"
+                full_jcl_path=""
                 
-                if [[ ! -f "$full_jcl_path" ]]; then
+                # Search across all JCL directories
+                for jcl_search_dir in "${JCL_DIRS[@]}"; do
+                    candidate="$jcl_search_dir/$jcl_file_path"
+                    if [[ -f "$candidate" ]]; then
+                        full_jcl_path="$candidate"
+                        break
+                    fi
+                done
+                
+                # If not found by direct path, search by basename across all dirs
+                if [[ -z "$full_jcl_path" ]]; then
                     jcl_basename=$(basename "$jcl_file_path")
-                    full_jcl_path=$(find "$JCL_DIR" -iname "$jcl_basename" -type f 2>/dev/null | head -1)
+                    for jcl_search_dir in "${JCL_DIRS[@]}"; do
+                        found=$(find "$jcl_search_dir" -iname "$jcl_basename" -type f 2>/dev/null | head -1)
+                        if [[ -n "$found" ]]; then
+                            full_jcl_path="$found"
+                            break
+                        fi
+                    done
                 fi
                 
-                if [[ -f "$full_jcl_path" ]]; then
+                if [[ -n "$full_jcl_path" && -f "$full_jcl_path" ]]; then
                     cp "$full_jcl_path" "$TEMP_PROGRAM_JCL_DIR/" 2>/dev/null || true
                     ((JCL_FOUND++))
                 fi
@@ -496,7 +660,7 @@ if [[ -f "$JAR_PATH" ]] && command -v java &>/dev/null; then
             -s "$CBL_SOURCE_DIR" \
             -cp "$CPY_SEARCH_DIR" \
             -r "$REPORT_DIR" \
-            "$cbl_name.cbl" > "$ERROR_LOG" 2>&1; then
+            "$cbl_basename" > "$ERROR_LOG" 2>&1; then
             ((AST_COUNT++))
             FILE_STATUS="✓"
             echo "$ERROR_LOG"
@@ -531,7 +695,7 @@ if [[ -f "$JAR_PATH" ]] && command -v java &>/dev/null; then
             fi
             
             # Create AST directory structure
-            ast_dir="$REPORT_DIR/$cbl_name.cbl.report/ast/aggregated"
+            ast_dir="$REPORT_DIR/$cbl_basename.report/ast/aggregated"
             mkdir -p "$ast_dir"
             
             # Generate fallback AST JSON compatible with API (Option A)
@@ -595,7 +759,8 @@ else
     for cbl_file in "${!CBL_FILES_MAP[@]}"; do
         if [[ ! -f "$cbl_file" ]]; then continue; fi
         
-        cbl_name=$(basename "$cbl_file" .cbl)
+        cbl_basename=$(basename "$cbl_file")
+        cbl_name=$(echo "$cbl_basename" | sed 's/\.[cC][bB][lL]$//')
         file_loc=$(wc -l < "$cbl_file" 2>/dev/null || echo 0)
         file_size=$(stat -f%z "$cbl_file" 2>/dev/null || stat -c%s "$cbl_file" 2>/dev/null || echo 0)
         
@@ -629,7 +794,7 @@ else
         FILE_END=$(date +%s%N)
         FILE_DURATION_MS=$(( (FILE_END - FILE_START) / 1000000 ))
         
-        ast_dir="$REPORT_DIR/$cbl_name.cbl.report/ast/aggregated"
+        ast_dir="$REPORT_DIR/$cbl_basename.report/ast/aggregated"
         mkdir -p "$ast_dir"
         
         # Create fallback AST JSON compatible with API (Option A)
@@ -777,8 +942,8 @@ if [[ "$GENERATE_GRAPHS" == "true" ]]; then
         
         if [[ -f "$GRAPH_SCRIPT" ]]; then
             if "$PYTHON_CMD" "$GRAPH_SCRIPT" \
-                --cobol-dir "$COBOL_DIR" \
-                --jcl-dir "$JCL_DIR" \
+                --cobol-dir "${CBL_DIRS[0]}" \
+                --jcl-dir "${JCL_DIRS[0]:-}" \
                 --ast-dir "$REPORT_DIR" \
                 --output "$GRAPH_FILE" 2>/dev/null; then
                 
@@ -848,10 +1013,23 @@ if [[ -z "$UI_PYTHON" ]]; then
 fi
 
 if [[ -n "$UI_PYTHON" ]] && [[ -f "$UI_JSON_SCRIPT" ]]; then
+    # UI script expects a single JCL dir; use aggregated temp dir if multiple
+    UI_JCL_DIR="${JCL_DIRS[0]:-}"
+    TEMP_UI_JCL=""
+    if [[ ${#JCL_DIRS[@]} -gt 1 ]]; then
+        TEMP_UI_JCL=$(mktemp -d)
+        for jcl_d in "${JCL_DIRS[@]}"; do
+            find "$jcl_d" -iname "*.jcl" -type f -exec cp {} "$TEMP_UI_JCL/" \; 2>/dev/null
+        done
+        UI_JCL_DIR="$TEMP_UI_JCL"
+    fi
+    
     "$UI_PYTHON" "$UI_JSON_SCRIPT" \
-        -j "$JCL_DIR" \
+        -j "$UI_JCL_DIR" \
         -r "$REPORT_DIR" \
         -o "$OUTPUT_DIR" 2>&1 | while read line; do echo "  $line"; done
+    
+    [[ -n "$TEMP_UI_JCL" && -d "$TEMP_UI_JCL" ]] && rm -rf "$TEMP_UI_JCL"
     
     if [[ -f "$OUTPUT_DIR/jcl-analysis.json" ]] && [[ -f "$OUTPUT_DIR/copybook-analysis-complete.json" ]]; then
         echo -e "  ${GREEN}✓ UI JSON files generated${NC}"
@@ -874,6 +1052,10 @@ echo -e "${BLUE}╚════════════════════�
 echo ""
 
 echo "Analysis Summary:"
+echo "  Mode:              $MODE"
+echo "  CBL directories:   ${CBL_DIRS[*]}"
+echo "  JCL directories:   ${JCL_DIRS[*]:-<none>}"
+echo "  CPY directories:   ${CPY_DIRS[*]:-<none>}"
 echo "  Files analyzed:    $CBL_COUNT COBOL, $JCL_COUNT JCL, $CPY_COUNT Copybooks"
 echo "  Programs mapped:   $MAPPED of $CBL_COUNT"
 echo "  ASTs generated:    $AST_COUNT"

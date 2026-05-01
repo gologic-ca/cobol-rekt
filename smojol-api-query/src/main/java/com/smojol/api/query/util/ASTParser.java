@@ -428,11 +428,17 @@ public class ASTParser {
         JsonNode stepsArray = root.get("steps");
         if (stepsArray != null && stepsArray.isArray()) {
             stepsArray.forEach(stepNode -> {
+                List<String> objLibs = new ArrayList<>();
+                JsonNode objLibsNode = stepNode.get("obj_libs");
+                if (objLibsNode != null && objLibsNode.isArray()) {
+                    objLibsNode.forEach(item -> objLibs.add(item.asText()));
+                }
                 JCLFile.JCLStep step = JCLFile.JCLStep.builder()
                         .name(getStringValue(stepNode, "name", ""))
                         .program(getStringValue(stepNode, "program", ""))
                         .datasets(extractDatasetsFromObject(stepNode))
                         .parameters(extractParameters(stepNode))
+                        .objLibs(objLibs)
                         .build();
                 steps.add(step);
             });

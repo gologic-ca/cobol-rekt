@@ -153,11 +153,21 @@ public class JclAnalysisParser {
             });
         }
 
+        // Extract obj_libs (OBJLIB includes from BINDPLAN)
+        List<String> objLibs = new ArrayList<>();
+        JsonNode objLibsNode = stepNode.get("obj_libs");
+        if (objLibsNode != null && objLibsNode.isArray()) {
+            for (JsonNode item : objLibsNode) {
+                objLibs.add(item.asText());
+            }
+        }
+
         return JCLFile.JCLStep.builder()
                 .name(stepName)
                 .program(program)
                 .datasets(datasets)
                 .parameters(parameters)
+                .objLibs(objLibs)
                 .build();
     }
 

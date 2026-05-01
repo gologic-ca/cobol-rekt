@@ -429,14 +429,23 @@ class JCLAnalyzer:
         if self.parser:
             try:
                 # Detect plan directory for BINDPLAN support
-                # Look for "plan" folder at same level as JCL parent directory
+                # Look for "MLLOT" (case-insensitive) folder at same level as JCL parent directory
                 jcl_parent = jcl_path.parent
-                potential_plan_dir = jcl_parent.parent / "plan"
-                if not potential_plan_dir.exists():
-                    # Also try at same level as JCL directory
-                    potential_plan_dir = jcl_parent / "plan"
+                base_path = None
                 
-                base_path = str(potential_plan_dir) if potential_plan_dir.exists() else None
+                # Search sibling directories of JCL parent
+                if jcl_parent.parent.exists():
+                    for candidate in jcl_parent.parent.iterdir():
+                        if candidate.is_dir() and candidate.name.lower() == "mllot":
+                            base_path = str(candidate)
+                            break
+                
+                # Fallback: search inside JCL directory
+                if not base_path:
+                    for candidate in jcl_parent.iterdir():
+                        if candidate.is_dir() and candidate.name.lower() == "mllot":
+                            base_path = str(candidate)
+                            break
                 
                 # Parse with base_path for BINDPLAN support
                 if base_path:
