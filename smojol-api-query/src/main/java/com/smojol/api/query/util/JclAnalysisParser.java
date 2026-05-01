@@ -80,17 +80,18 @@ public class JclAnalysisParser {
 
         String jobName = getTextValue(jclNode, "job_name", name);
         String path = getTextValue(jclNode, "path", "");
-
         // Extraire les programmes
-        List<String> programs = new ArrayList<>();
+        // Extraire les programmes (depuis le champ top-level + steps + bindplans)
+        Set<String> programsSet = new HashSet<>();
         JsonNode programsNode = jclNode.get("programs");
         if (programsNode != null && programsNode.isArray()) {
             for (JsonNode programNode : programsNode) {
-                programs.add(programNode.asText());
+                String pgm = programNode.asText().trim();
+                if (!pgm.isEmpty()) programsSet.add(pgm);
             }
         }
 
-        // Extraire les plans depuis bindplans
+        // Extraire les plans depuis bindplans ET les programmes associes
         List<String> plans = new ArrayList<>();
         JsonNode bindplansNode = jclNode.get("bindplans");
         if (bindplansNode != null && bindplansNode.isArray()) {
@@ -99,8 +100,25 @@ public class JclAnalysisParser {
                 if (!planName.isEmpty()) {
                     plans.add(planName);
                 }
+                // Le champ "name" du bindplan est le programme lie
+                String bpProgram = getTextValue(bpNode, "name", "");
+                if (!bpProgram.isEmpty()) {
+                    programsSet.add(bpProgram);
+                }
             }
         }
+
+        // Extraire les programmes depuis les steps (champ "program")
+        JsonNode stepsNodeForPrograms = jclNode.get("steps");
+        if (stepsNodeForPrograms != null && stepsNodeForPrograms.isArray()) {
+            for (JsonNode stepNode : stepsNodeForPrograms) {
+                String stepProgram = getTextValue(stepNode, "program", "");
+                if (!stepProgram.isEmpty()) {
+                    programsSet.add(stepProgram);
+                }
+            }
+        }
+        List<String> programs = new ArrayList<>(programsSet);
 
         // Extraire uniquement les DSN (vrais datasets) depuis les steps
         // Note: On ignore dd_names car ce sont les noms des DD statements (SYSPRINT, etc.)

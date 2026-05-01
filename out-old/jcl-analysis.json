@@ -1,0 +1,117 @@
+{
+  "jcl_files": [
+    {
+      "name": "CBINIT.jcl",
+      "stem": "CBINIT",
+      "path": "C:\\workspace\\desj\\poc\\jcl\\CBINIT.jcl",
+      "job_name": "CBEXPORT",
+      "programs": [
+        "IDCAMS",
+        "CBEXPORT"
+      ],
+      "dd_names": [
+        "SYSPRINT",
+        "SYSIN"
+      ],
+      "steps": [
+        {
+          "name": "STEP01",
+          "program": "IDCAMS",
+          "line": 24,
+          "dd_count": 2,
+          "dd_statements": [
+            {
+              "name": "SYSPRINT",
+              "line": 25,
+              "parameters": {
+                "SYSOUT": "*",
+                "_value": "SYSOUT=*"
+              }
+            },
+            {
+              "name": "SYSIN",
+              "line": 26,
+              "parameters": {
+                "*": "",
+                "_value": "*"
+              }
+            }
+          ],
+          "parameters": {
+            "PGM": "IDCAMS",
+            "_value": "PGM=IDCAMS"
+          }
+        },
+        {
+          "name": "CBEXPORT",
+          "program": "CBEXPORT",
+          "line": 44,
+          "dd_count": 0,
+          "dd_statements": [],
+          "parameters": {
+            "BINDPLAN": "",
+            "PLAN": "CBEXP",
+            "_value": "BINDPLAN,PLAN=CBEXP"
+          },
+          "obj_libs": [
+            "CBIMPORT"
+          ]
+        }
+      ],
+      "bindplans": [
+        {
+          "name": "CBEXPORT",
+          "plan": "CBEXP",
+          "line": 44,
+          "entry_point": "CBEXPORT",
+          "include_files": [
+            "CBIMPORT"
+          ],
+          "plan_file_found": true
+        }
+      ],
+      "lines": 45,
+      "size": 2273,
+      "parse_error": null,
+      "datasets": {
+        "INPUT": [],
+        "OUTPUT": [],
+        "SYSOUT": [
+          {
+            "dd_name": "SYSPRINT",
+            "destination": "*"
+          }
+        ]
+      }
+    }
+  ],
+  "summary": {
+    "total_jcl_files": 1,
+    "dd_names": [
+      {
+        "name": "SYSPRINT",
+        "jcl_files": [
+          "CBINIT"
+        ],
+        "type": "SYSOUT",
+        "count": 1
+      },
+      {
+        "name": "SYSIN",
+        "jcl_files": [
+          "CBINIT"
+        ],
+        "type": "unknown",
+        "count": 1
+      }
+    ],
+    "total_programs": 2,
+    "total_dd_statements": 2,
+    "total_datasets": 1,
+    "dataset_summary": {
+      "INPUT": 0,
+      "OUTPUT": 0,
+      "SYSOUT": 1
+    }
+  }
+}

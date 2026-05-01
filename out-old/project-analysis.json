@@ -1,0 +1,26 @@
+{
+  "statistics": {
+    "found": 1,
+    "system": 1,
+    "missing": 0
+  },
+  "cbl_files": [
+    {
+      "program": "CBEXPORT",
+      "jcl_files": [
+        "CBINIT"
+      ]
+    }
+  ],
+  "bindplans": [
+    {
+      "jcl_file": "CBINIT.jcl",
+      "plan_name": "CBEXP",
+      "entry_point": "CBEXPORT",
+      "plan_file_found": true,
+      "objlib_includes": [
+        "CBIMPORT"
+      ]
+    }
+  ]
+}

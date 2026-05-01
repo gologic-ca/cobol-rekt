@@ -663,7 +663,7 @@ public class SimpleASTQueryService implements ASTQueryService {
                 // Check bindplan steps: if entry_point matches this program, collect the plan name
                 if (jcl.getSteps() != null) {
                     for (JCLFile.JCLStep step : jcl.getSteps()) {
-                        if (program.getName().equalsIgnoreCase(step.getProgram())) {
+                        if ((program.getName().equalsIgnoreCase(step.getProgram()) || program.getName().equalsIgnoreCase(step.getName()))) {
                             // This step executes our program - check if it has a plan parameter
                             Map<String, String> params = step.getParameters();
                             if (params != null && params.containsKey("PLAN")) {

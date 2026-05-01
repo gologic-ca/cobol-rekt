@@ -212,6 +212,19 @@ public class SmojolRestAPI {
         map.put("programs", orEmpty(jcl.getPrograms()));
         map.put("plans", orEmpty(jcl.getPlans()));
         map.put("datasets", orEmpty(jcl.getDatasets()));
+        if (jcl.getSteps() != null && !jcl.getSteps().isEmpty()) {
+            List<Map<String, Object>> stepsList = new java.util.ArrayList<>();
+            for (JCLFile.JCLStep step : jcl.getSteps()) {
+                Map<String, Object> stepMap = new HashMap<>();
+                stepMap.put("name", step.getName());
+                stepMap.put("program", step.getProgram());
+                stepMap.put("datasets", orEmpty(step.getDatasets()));
+                stepMap.put("parameters", step.getParameters() != null ? step.getParameters() : new HashMap<>());
+                stepMap.put("obj_libs", orEmpty(step.getObjLibs()));
+                stepsList.add(stepMap);
+            }
+            map.put("steps", stepsList);
+        }
         return map;
     }
     

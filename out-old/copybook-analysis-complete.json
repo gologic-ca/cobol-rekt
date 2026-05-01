@@ -1,0 +1,268 @@
+{
+  "programs": [
+    {
+      "program": "CBEXPORT",
+      "path": "C:\\workspace\\desj\\poc\\out2\\report\\CBEXPORT.cbl.report",
+      "copybooks": [
+        {
+          "name": "CVACT02Y",
+          "uri": "file:///C:/workspace/desj/poc/cpy/CVACT02Y.cpy",
+          "size": 0,
+          "lines": 0,
+          "usages": [
+            {
+              "uri": "file:/C:/workspace/desj/poc/cbl/CBEXPORT.cbl",
+              "line": 87,
+              "column": 12
+            }
+          ],
+          "includes": [],
+          "exists": true
+        },
+        {
+          "name": "CVACT01Y",
+          "uri": "file:///C:/workspace/desj/poc/cpy/CVACT01Y.cpy",
+          "size": 0,
+          "lines": 0,
+          "usages": [
+            {
+              "uri": "file:/C:/workspace/desj/poc/cbl/CBEXPORT.cbl",
+              "line": 78,
+              "column": 12
+            }
+          ],
+          "includes": [],
+          "exists": true
+        },
+        {
+          "name": "CVCUS01Y",
+          "uri": "file:///C:/workspace/desj/poc/cpy/CVCUS01Y.cpy",
+          "size": 0,
+          "lines": 0,
+          "usages": [
+            {
+              "uri": "file:/C:/workspace/desj/poc/cbl/CBEXPORT.cbl",
+              "line": 75,
+              "column": 12
+            }
+          ],
+          "includes": [],
+          "exists": true
+        },
+        {
+          "name": "CVEXPORT",
+          "uri": "file:///C:/workspace/desj/poc/cpy/CVEXPORT.cpy",
+          "size": 0,
+          "lines": 0,
+          "usages": [
+            {
+              "uri": "file:/C:/workspace/desj/poc/cbl/CBEXPORT.cbl",
+              "line": 96,
+              "column": 12
+            }
+          ],
+          "includes": [],
+          "exists": true
+        },
+        {
+          "name": "CVTRA05Y",
+          "uri": "file:///C:/workspace/desj/poc/cpy/CVTRA05Y.cpy",
+          "size": 0,
+          "lines": 0,
+          "usages": [
+            {
+              "uri": "file:/C:/workspace/desj/poc/cbl/CBEXPORT.cbl",
+              "line": 84,
+              "column": 12
+            }
+          ],
+          "includes": [],
+          "exists": true
+        },
+        {
+          "name": "CVACT03Y",
+          "uri": "file:///C:/workspace/desj/poc/cpy/CVACT03Y.cpy",
+          "size": 0,
+          "lines": 0,
+          "usages": [
+            {
+              "uri": "file:/C:/workspace/desj/poc/cbl/CBEXPORT.cbl",
+              "line": 81,
+              "column": 12
+            }
+          ],
+          "includes": [],
+          "exists": true
+        }
+      ]
+    },
+    {
+      "program": "CBIMPORT",
+      "path": "C:\\workspace\\desj\\poc\\out2\\report\\CBIMPORT.cbl.report",
+      "copybooks": [
+        {
+          "name": "CVACT02Y",
+          "uri": "file:///C:/workspace/desj/poc/cpy/CVACT02Y.cpy",
+          "size": 0,
+          "lines": 0,
+          "usages": [
+            {
+              "uri": "file:/C:/workspace/desj/poc/cbl/CBIMPORT.cbl",
+              "line": 104,
+              "column": 12
+            }
+          ],
+          "includes": [],
+          "exists": true
+        },
+        {
+          "name": "CVACT01Y",
+          "uri": "file:///C:/workspace/desj/poc/cpy/CVACT01Y.cpy",
+          "size": 0,
+          "lines": 0,
+          "usages": [
+            {
+              "uri": "file:/C:/workspace/desj/poc/cbl/CBIMPORT.cbl",
+              "line": 89,
+              "column": 12
+            }
+          ],
+          "includes": [],
+          "exists": true
+        },
+        {
+          "name": "CVCUS01Y",
+          "uri": "file:///C:/workspace/desj/poc/cpy/CVCUS01Y.cpy",
+          "size": 0,
+          "lines": 0,
+          "usages": [
+            {
+              "uri": "file:/C:/workspace/desj/poc/cbl/CBIMPORT.cbl",
+              "line": 84,
+              "column": 12
+            }
+          ],
+          "includes": [],
+          "exists": true
+        },
+        {
+          "name": "CVEXPORT",
+          "uri": "file:///C:/workspace/desj/poc/cpy/CVEXPORT.cpy",
+          "size": 0,
+          "lines": 0,
+          "usages": [
+            {
+              "uri": "file:/C:/workspace/desj/poc/cbl/CBIMPORT.cbl",
+              "line": 113,
+              "column": 12
+            }
+          ],
+          "includes": [],
+          "exists": true
+        },
+        {
+          "name": "CVTRA05Y",
+          "uri": "file:///C:/workspace/desj/poc/cpy/CVTRA05Y.cpy",
+          "size": 0,
+          "lines": 0,
+          "usages": [
+            {
+              "uri": "file:/C:/workspace/desj/poc/cbl/CBIMPORT.cbl",
+              "line": 99,
+              "column": 12
+            }
+          ],
+          "includes": [],
+          "exists": true
+        },
+        {
+          "name": "CVACT03Y",
+          "uri": "file:///C:/workspace/desj/poc/cpy/CVACT03Y.cpy",
+          "size": 0,
+          "lines": 0,
+          "usages": [
+            {
+              "uri": "file:/C:/workspace/desj/poc/cbl/CBIMPORT.cbl",
+              "line": 94,
+              "column": 12
+            }
+          ],
+          "includes": [],
+          "exists": true
+        }
+      ]
+    }
+  ],
+  "copybooks": [
+    {
+      "name": "CVACT02Y",
+      "uri": "file:///C:/workspace/desj/poc/cpy/CVACT02Y.cpy",
+      "size": 0,
+      "lines": 0,
+      "used_by": [
+        "CBEXPORT",
+        "CBIMPORT"
+      ],
+      "exists": true
+    },
+    {
+      "name": "CVACT01Y",
+      "uri": "file:///C:/workspace/desj/poc/cpy/CVACT01Y.cpy",
+      "size": 0,
+      "lines": 0,
+      "used_by": [
+        "CBEXPORT",
+        "CBIMPORT"
+      ],
+      "exists": true
+    },
+    {
+      "name": "CVCUS01Y",
+      "uri": "file:///C:/workspace/desj/poc/cpy/CVCUS01Y.cpy",
+      "size": 0,
+      "lines": 0,
+      "used_by": [
+        "CBEXPORT",
+        "CBIMPORT"
+      ],
+      "exists": true
+    },
+    {
+      "name": "CVEXPORT",
+      "uri": "file:///C:/workspace/desj/poc/cpy/CVEXPORT.cpy",
+      "size": 0,
+      "lines": 0,
+      "used_by": [
+        "CBEXPORT",
+        "CBIMPORT"
+      ],
+      "exists": true
+    },
+    {
+      "name": "CVTRA05Y",
+      "uri": "file:///C:/workspace/desj/poc/cpy/CVTRA05Y.cpy",
+      "size": 0,
+      "lines": 0,
+      "used_by": [
+        "CBEXPORT",
+        "CBIMPORT"
+      ],
+      "exists": true
+    },
+    {
+      "name": "CVACT03Y",
+      "uri": "file:///C:/workspace/desj/poc/cpy/CVACT03Y.cpy",
+      "size": 0,
+      "lines": 0,
+      "used_by": [
+        "CBEXPORT",
+        "CBIMPORT"
+      ],
+      "exists": true
+    }
+  ],
+  "summary": {
+    "total_programs": 2,
+    "total_copybooks": 6
+  }
+}
