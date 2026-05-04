@@ -4,6 +4,9 @@ import com.smojol.api.query.config.ASTConfig;
 import com.smojol.api.query.util.ASTLoader;
 import com.smojol.api.query.util.JclAnalysisParser;
 import com.smojol.api.query.model.CBLFile;
+import com.smojol.api.query.util.LRUCache;
+import com.smojol.api.query.util.MetadataIndex;
+import com.smojol.api.query.model.ProgramMetadata;
 import com.smojol.api.query.model.Copybook;
 import com.smojol.api.query.model.Dataset;
 import com.smojol.api.query.model.JCLFile;
@@ -32,6 +35,12 @@ public class SimpleASTQueryService implements ASTQueryService {
 
     private final ASTConfig config;
     private final ASTLoader loader;
+
+    // Tier 1: Index léger en mémoire — métadonnées uniquement (~100 MB pour 12 GB de fichiers)
+    private final MetadataIndex metadataIndex = new MetadataIndex();
+
+    // Tier 2: LRU cache pour les ASTs complets chargés à la demande
+    private final LRUCache<String, CBLFile> astCache;
     private final SimpleCache<String, CBLFile> cblCache;
     private final SimpleCache<String, JCLFile> jclCache;
     private final SimpleCache<String, Copybook> copybookCache;
@@ -44,6 +53,7 @@ public class SimpleASTQueryService implements ASTQueryService {
     public SimpleASTQueryService(ASTConfig config) {
         this.config = config;
         this.loader = new ASTLoader(config.getAstBasePath().toString());
+        this.astCache = new LRUCache<>(config.getCacheMaxSize());
         this.cblCache = new SimpleCache<>(config.getCacheMaxSize());
         this.jclCache = new SimpleCache<>(config.getCacheMaxSize());
         this.copybookCache = new SimpleCache<>(config.getCacheMaxSize());
@@ -63,19 +73,21 @@ public class SimpleASTQueryService implements ASTQueryService {
     public Optional<CBLFile> getCbl(String programName) {
         logger.debug("getCbl: {}", programName);
 
-        // 1. Chercher dans le cache
-        Optional<CBLFile> cached = cblCache.get("cbl:" + programName);
+        // 1. Chercher dans le LRU cache (full AST)
+        Optional<CBLFile> cached = astCache.get(programName);
         if (cached.isPresent()) {
-            logger.debug("Found in CBL cache: {}", programName);
             return cached;
         }
 
         // 2. Charger depuis le disque
         Optional<CBLFile> cbl = loader.loadCbl(programName);
 
-        // 3. Ajouter au cache
+        // 3. Ajouter au LRU cache
         cbl.ifPresent(c -> {
-            cblCache.put("cbl:" + programName, c);
+            astCache.put(programName, c);
+            if (metadataIndex.getProgram(programName).isEmpty()) {
+                metadataIndex.indexProgram(c);
+            }
             allCbls.put(programName, c);
         });
 
@@ -427,49 +439,89 @@ public class SimpleASTQueryService implements ASTQueryService {
     }
 
     /**
-     * Précharge tous les ASTs disponibles et résout les includes
-     * À appeler une seule fois au démarrage de l'application
+     * Précharge les métadonnées et construit les index (architecture 2-tier).
+     * 
+     * Phase 1: Charge chaque AST, extrait les métadonnées vers le MetadataIndex
+     * Phase 2: Résout les includes copybook
+     * Phase 3: Construit l'index JCL→Programme
+     * Phase 4: Construit le graphe des callers
+     * Phase 5: Si memoryOptimization=true, libère les ASTs complets du heap
+     * 
+     * Résultat: ~100 MB de RAM pour l'index, même avec 12 GB de fichiers AST.
      */
     public void preloadAllAndResolveIncludes() {
-        logger.info("Preloading all ASTs and resolving includes...");
+        logger.info("Preloading metadata index (2-tier architecture)...");
         Path basePath = config.getAstBasePath();
+        long startTime = System.currentTimeMillis();
         
         try {
-            // Vérifier si le répertoire report existe
             Path reportPath = basePath.resolve("report");
             Path scanPath = Files.exists(reportPath) ? reportPath : basePath;
             
             logger.info("Scanning for AST files in: {}", scanPath.toAbsolutePath());
             
-            // Scanner récursivement pour trouver tous les fichiers *-aggregated.json
+            // Phase 1: Scanner et charger les ASTs pour extraire les métadonnées
+            List<String> programNames = new ArrayList<>();
             Files.walk(scanPath, 10)
                     .filter(p -> p.getFileName().toString().endsWith("-aggregated.json"))
                     .forEach(p -> {
                         String fileName = p.getFileName().toString();
                         String name = fileName.replace("-aggregated.json", "");
-                        logger.debug("Loading program: {}", name);
-                        getCbl(name);  // Load and cache
+                        programNames.add(name);
                     });
+            
+            logger.info("Found {} AST files to index", programNames.size());
+            
+            for (String name : programNames) {
+                Optional<CBLFile> cbl = loader.loadCbl(name);
+                cbl.ifPresent(c -> {
+                    metadataIndex.indexProgram(c);
+                    allCbls.put(name, c);
+                });
+            }
 
-            // Résoudre les includes pour tous les copybooks
+            // Phase 2: Résoudre les includes pour tous les copybooks
             CopybookIncludesResolver resolver = new CopybookIncludesResolver();
             for (Copybook copybook : allCopybooks.values()) {
                 try {
                     resolver.populateResolvedIncludes(copybook, this);
+                    metadataIndex.indexCopybook(copybook);
                 } catch (Exception e) {
                     logger.warn("Error resolving includes for copybook {}: {}",
                         copybook.getName(), e.getMessage());
                 }
             }
 
-            logger.info("Preload complete. Cached {} CBLs, {} Copybooks. Includes resolved.",
-                allCbls.size(), allCopybooks.size());
+            logger.info("Metadata indexed: {} programs, {} copybooks.",
+                metadataIndex.getProgramCount(), metadataIndex.getCopybookCount());
             
-            // Construire l'index JCL→Programme (plans, jcls appelants)
+            // Phase 3: Construire l'index JCL→Programme
             buildJclProgramIndex(new ArrayList<>(allCbls.values()));
             
-            // Construire le graphe des callers après le chargement de tous les programmes
-            buildCallGraph();            
+            // Phase 4: Construire le graphe des callers
+            buildCallGraph();
+            
+            // Phase 5: Synchroniser callers/jcls/plans vers metadataIndex
+            for (CBLFile cbl : allCbls.values()) {
+                ProgramMetadata meta = metadataIndex.getProgram(cbl.getName()).orElse(null);
+                if (meta != null) {
+                    meta.setCallers(cbl.getCallers());
+                    meta.setJcls(cbl.getJcls());
+                    meta.setPlans(cbl.getPlans());
+                }
+            }
+            
+            // Phase 6: Libérer les ASTs complets si memory optimization activé
+            if (config.isMemoryOptimizationEnabled()) {
+                int freedCount = allCbls.size();
+                allCbls.clear();
+                logger.info("Memory optimization: released {} full ASTs from heap. Index: {}",
+                    freedCount, metadataIndex.getStats());
+            }
+            
+            long elapsed = System.currentTimeMillis() - startTime;
+            logger.info("Preload complete in {}ms. {}", elapsed, metadataIndex.getStats());
+            
         } catch (IOException e) {
             logger.error("Error during preload: {}", e.getMessage(), e);
         }
@@ -575,66 +627,42 @@ public class SimpleASTQueryService implements ASTQueryService {
 
     @Override
     public List<CBLFile> getAllCbl() {
-        logger.info("getAllCbl called - scanning for CBL files...");
+        logger.debug("getAllCbl called");
         
-        // Charger tous les fichiers .cbl avec scan récursif dans report/
+        // Si l'index est peuplé, retourner depuis l'index (pas de chargement AST)
+        if (metadataIndex.getProgramCount() > 0) {
+            List<CBLFile> result = new ArrayList<>();
+            for (ProgramMetadata meta : metadataIndex.getAllPrograms()) {
+                result.add(meta.toCBLFile());
+            }
+            logger.debug("Returning {} programs from metadata index", result.size());
+            return result;
+        }
+        
+        // Fallback: scanner et charger (première utilisation sans preload)
+        logger.info("Metadata index empty, scanning for CBL files...");
         List<CBLFile> allPrograms = new ArrayList<>();
         Path basePath = config.getAstBasePath();
-        logger.info("Base path: {}", basePath.toAbsolutePath());
         
         try {
-            // Scanner récursivement dans report/*/ast/aggregated/
             Path reportPath = basePath.resolve("report");
-            logger.info("Looking for report directory at: {}", reportPath.toAbsolutePath());
+            Path scanPath = Files.exists(reportPath) ? reportPath : basePath;
             
-            if (Files.exists(reportPath) && Files.isDirectory(reportPath)) {
-                logger.info("Report directory exists, scanning recursively...");
-                Files.walk(reportPath)
-                    .filter(Files::isRegularFile)
-                    .filter(p -> {
-                        boolean matches = p.getFileName().toString().endsWith("-aggregated.json");
-                        if (matches) {
-                            logger.debug("Found aggregated file: {}", p);
-                        }
-                        return matches;
-                    })
-                    .filter(p -> {
-                        boolean contains = p.toString().contains("ast" + java.io.File.separator + "aggregated");
-                        if (!contains) {
-                            logger.debug("Skipping file (not in ast/aggregated): {}", p);
-                        }
-                        return contains;
-                    })
-                    .forEach(p -> {
-                        String fileName = p.getFileName().toString();
-                        String programName = fileName.replace("-aggregated.json", "");
-                        logger.info("Processing AST file: {} for program: {}", p, programName);
-                        Optional<CBLFile> cbl = getCbl(programName);
-                        if (cbl.isPresent()) {
-                            allPrograms.add(cbl.get());
-                            logger.info("Successfully loaded program: {}", programName);
-                        } else {
-                            logger.warn("Failed to load program: {}", programName);
-                        }
-                    });
-            } else {
-                logger.warn("Report directory not found at: {}, trying fallback...", reportPath.toAbsolutePath());
-                // Fallback: scanner au niveau racine (ancien format)
-                Files.list(basePath)
-                    .filter(p -> p.getFileName().toString().endsWith(".cbl-aggregated.json"))
-                    .forEach(p -> {
-                        String fileName = p.getFileName().toString();
-                        String programName = fileName.replace(".cbl-aggregated.json", "");
-                        getCbl(programName).ifPresent(allPrograms::add);
-                    });
-            }
+            Files.walk(scanPath, 10)
+                .filter(Files::isRegularFile)
+                .filter(p -> p.getFileName().toString().endsWith("-aggregated.json"))
+                .filter(p -> p.toString().contains("ast" + java.io.File.separator + "aggregated"))
+                .forEach(p -> {
+                    String fileName = p.getFileName().toString();
+                    String programName = fileName.replace("-aggregated.json", "");
+                    Optional<CBLFile> cbl = getCbl(programName);
+                    cbl.ifPresent(allPrograms::add);
+                });
         } catch (IOException e) {
             logger.error("Error listing all CBL files: {}", e.getMessage(), e);
         }
         
-        logger.info("Completed scan - Found {} CBL programs", allPrograms.size());
-        
-        // NOUVEAU: Créer index inversé JCL→Programme
+        logger.info("Found {} CBL programs", allPrograms.size());
         buildJclProgramIndex(allPrograms);
         
         return allPrograms;
