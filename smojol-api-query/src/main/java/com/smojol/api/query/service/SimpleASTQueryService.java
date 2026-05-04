@@ -53,7 +53,7 @@ public class SimpleASTQueryService implements ASTQueryService {
     public SimpleASTQueryService(ASTConfig config) {
         this.config = config;
         this.loader = new ASTLoader(config.getAstBasePath().toString());
-        this.astCache = new LRUCache<>(config.getCacheMaxSize());
+        this.astCache = new LRUCache<>(Math.min(config.getCacheMaxSize(), 20));
         this.cblCache = new SimpleCache<>(config.getCacheMaxSize());
         this.jclCache = new SimpleCache<>(config.getCacheMaxSize());
         this.copybookCache = new SimpleCache<>(config.getCacheMaxSize());
@@ -88,7 +88,6 @@ public class SimpleASTQueryService implements ASTQueryService {
             if (metadataIndex.getProgram(programName).isEmpty()) {
                 metadataIndex.indexProgram(c);
             }
-            allCbls.put(programName, c);
         });
 
         return cbl;
@@ -110,8 +109,6 @@ public class SimpleASTQueryService implements ASTQueryService {
 
         // 3. Ajouter au cache
         jcl.ifPresent(j -> {
-            jclCache.put("jcl:" + jclName, j);
-            allJcls.put(jclName, j);
         });
 
         return jcl;
@@ -134,7 +131,6 @@ public class SimpleASTQueryService implements ASTQueryService {
         // 3. Ajouter au cache
         copybook.ifPresent(c -> {
             copybookCache.put("cpy:" + copybookName, c);
-            allCopybooks.put(copybookName, c);
         });
 
         return copybook;
@@ -206,56 +202,38 @@ public class SimpleASTQueryService implements ASTQueryService {
     public List<CBLFile> findCblUsingCopybook(String copybookName) {
         logger.debug("findCblUsingCopybook: {}", copybookName);
 
-        List<CBLFile> result = new ArrayList<>();
-
-        // Parcourir tous les programmes COBOL
-        Path basePath = config.getAstBasePath();
-        try {
-            Files.list(basePath)
-                    .filter(p -> p.getFileName().toString().endsWith("-aggregated.json"))
-                    .forEach(p -> {
-                        String fileName = p.getFileName().toString();
-                        String cblName = fileName.replace("-aggregated.json", "");
-
-                        Optional<CBLFile> cbl = getCbl(cblName);
-                        if (cbl.isPresent() && cbl.get().usesCopybook(copybookName)) {
-                            result.add(cbl.get());
-                        }
-                    });
-        } catch (IOException e) {
-            logger.error("Error scanning for CBLs using copybook {}: {}", copybookName, e.getMessage());
+        // Utiliser l index inverse O(1) — aucun chargement AST
+        List<ProgramMetadata> metas = metadataIndex.findProgramsUsingCopybook(copybookName);
+        if (!metas.isEmpty()) {
+            List<CBLFile> result = new ArrayList<>();
+            for (ProgramMetadata meta : metas) {
+                result.add(meta.toCBLFile());
+            }
+            logger.debug("Found {} programs using copybook {} (from index)", result.size(), copybookName);
+            return result;
         }
 
-        logger.debug("Found {} CBLs using copybook: {}", result.size(), copybookName);
-        return result;
+        logger.debug("No programs found using copybook: {}", copybookName);
+        return new ArrayList<>();
     }
 
     @Override
     public List<CBLFile> findCblUsingDataset(String datasetName) {
         logger.debug("findCblUsingDataset: {}", datasetName);
 
-        List<CBLFile> result = new ArrayList<>();
-
-        // Parcourir tous les programmes COBOL
-        Path basePath = config.getAstBasePath();
-        try {
-            Files.list(basePath)
-                    .filter(p -> p.getFileName().toString().endsWith("-aggregated.json"))
-                    .forEach(p -> {
-                        String fileName = p.getFileName().toString();
-                        String cblName = fileName.replace("-aggregated.json", "");
-
-                        Optional<CBLFile> cbl = getCbl(cblName);
-                        if (cbl.isPresent() && cbl.get().usesDataset(datasetName)) {
-                            result.add(cbl.get());
-                        }
-                    });
-        } catch (IOException e) {
-            logger.error("Error scanning for CBLs using dataset {}: {}", datasetName, e.getMessage());
+        // Utiliser l index inverse O(1) — aucun chargement AST
+        List<ProgramMetadata> metas = metadataIndex.findProgramsUsingDataset(datasetName);
+        if (!metas.isEmpty()) {
+            List<CBLFile> result = new ArrayList<>();
+            for (ProgramMetadata meta : metas) {
+                result.add(meta.toCBLFile());
+            }
+            logger.debug("Found {} programs using dataset {} (from index)", result.size(), datasetName);
+            return result;
         }
 
-        logger.debug("Found {} CBLs using dataset: {}", result.size(), datasetName);
-        return result;
+        logger.debug("No programs found using dataset: {}", datasetName);
+        return new ArrayList<>();
     }
 
     @Override
@@ -354,7 +332,7 @@ public class SimpleASTQueryService implements ASTQueryService {
         }
 
         // Charger les copybooks avec cycle detection
-        Map<String, Copybook> allCopybooksMap = new HashMap<>(allCopybooks);
+        Map<String, Copybook> allCopybooksMap = new HashMap<>();
 
         // Ajouter le copybook courant s'il n'existe pas
         if (!allCopybooksMap.containsKey(copybookName)) {
@@ -437,148 +415,145 @@ public class SimpleASTQueryService implements ASTQueryService {
         logger.debug("Found {} resolved includes for: {}", resolved.size(), copybookName);
         return resolved;
     }
-
     /**
-     * Précharge les métadonnées et construit les index (architecture 2-tier).
-     * 
-     * Phase 1: Charge chaque AST, extrait les métadonnées vers le MetadataIndex
-     * Phase 2: Résout les includes copybook
-     * Phase 3: Construit l'index JCL→Programme
-     * Phase 4: Construit le graphe des callers
-     * Phase 5: Si memoryOptimization=true, libère les ASTs complets du heap
-     * 
-     * Résultat: ~100 MB de RAM pour l'index, même avec 12 GB de fichiers AST.
+     * Precharge les metadonnees et construit les index (architecture 2-tier, streaming).
+     *
+     * Charge un seul AST a la fois, extrait ses metadonnees vers le MetadataIndex,
+     * puis le libere IMMEDIATEMENT. Pic memoire = 1 AST max (~150 MB) au lieu de tous.
      */
     public void preloadAllAndResolveIncludes() {
         logger.info("Preloading metadata index (2-tier architecture)...");
         Path basePath = config.getAstBasePath();
         long startTime = System.currentTimeMillis();
-        
+
         try {
             Path reportPath = basePath.resolve("report");
             Path scanPath = Files.exists(reportPath) ? reportPath : basePath;
-            
+
             logger.info("Scanning for AST files in: {}", scanPath.toAbsolutePath());
-            
-            // Phase 1: Scanner et charger les ASTs pour extraire les métadonnées
+
+            // Phase 1: Decouvrir les noms de programmes (pas de chargement)
             List<String> programNames = new ArrayList<>();
             Files.walk(scanPath, 10)
                     .filter(p -> p.getFileName().toString().endsWith("-aggregated.json"))
                     .forEach(p -> {
                         String fileName = p.getFileName().toString();
-                        String name = fileName.replace("-aggregated.json", "");
-                        programNames.add(name);
+                        programNames.add(fileName.replace("-aggregated.json", ""));
                     });
-            
+
             logger.info("Found {} AST files to index", programNames.size());
-            
+
+            // Phase 2: Streaming — charger un AST a la fois, extraire metadonnees, liberer
+            int indexed = 0;
             for (String name : programNames) {
                 Optional<CBLFile> cbl = loader.loadCbl(name);
-                cbl.ifPresent(c -> {
-                    metadataIndex.indexProgram(c);
-                    allCbls.put(name, c);
-                });
+                if (cbl.isPresent()) {
+                    metadataIndex.indexProgram(cbl.get());
+                    indexed++;
+                    if (indexed % 50 == 0) {
+                        logger.info("Indexed {}/{} programs...", indexed, programNames.size());
+                    }
+                }
+                // AST est libere ici (hors scope, eligible GC)
             }
 
-            // Phase 2: Résoudre les includes pour tous les copybooks
-            CopybookIncludesResolver resolver = new CopybookIncludesResolver();
-            for (Copybook copybook : allCopybooks.values()) {
-                try {
-                    resolver.populateResolvedIncludes(copybook, this);
-                    metadataIndex.indexCopybook(copybook);
-                } catch (Exception e) {
-                    logger.warn("Error resolving includes for copybook {}: {}",
-                        copybook.getName(), e.getMessage());
+            logger.info("Metadata indexed: {} programs.", metadataIndex.getProgramCount());
+
+            // Phase 3: Charger et indexer les JCL (petits fichiers)
+            Path jclAnalysisPath = basePath.resolve("jcl-analysis.json");
+            if (Files.exists(jclAnalysisPath)) {
+                logger.info("Loading JCLs from jcl-analysis.json");
+                JclAnalysisParser parser = new JclAnalysisParser();
+                List<JCLFile> jclFiles = parser.parseJclAnalysis(jclAnalysisPath);
+                for (JCLFile jcl : jclFiles) {
+                    metadataIndex.indexJcl(jcl);
                 }
+                logger.info("Loaded {} JCLs from jcl-analysis.json", jclFiles.size());
             }
 
-            logger.info("Metadata indexed: {} programs, {} copybooks.",
-                metadataIndex.getProgramCount(), metadataIndex.getCopybookCount());
-            
-            // Phase 3: Construire l'index JCL→Programme
-            buildJclProgramIndex(new ArrayList<>(allCbls.values()));
-            
-            // Phase 4: Construire le graphe des callers
-            buildCallGraph();
-            
-            // Phase 5: Synchroniser callers/jcls/plans vers metadataIndex
-            for (CBLFile cbl : allCbls.values()) {
-                ProgramMetadata meta = metadataIndex.getProgram(cbl.getName()).orElse(null);
-                if (meta != null) {
-                    meta.setCallers(cbl.getCallers());
-                    meta.setJcls(cbl.getJcls());
-                    meta.setPlans(cbl.getPlans());
-                }
-            }
-            
-            // Phase 6: Libérer les ASTs complets si memory optimization activé
-            if (config.isMemoryOptimizationEnabled()) {
-                int freedCount = allCbls.size();
-                allCbls.clear();
-                logger.info("Memory optimization: released {} full ASTs from heap. Index: {}",
-                    freedCount, metadataIndex.getStats());
-            }
-            
+            // Phase 4: Construire l index JCL->Programme depuis le MetadataIndex
+            buildJclProgramIndexFromMetadata();
+
+            // Phase 5: Construire le graphe des callers depuis le MetadataIndex
+            buildCallGraphFromMetadata();
+
             long elapsed = System.currentTimeMillis() - startTime;
             logger.info("Preload complete in {}ms. {}", elapsed, metadataIndex.getStats());
-            
+
         } catch (IOException e) {
             logger.error("Error during preload: {}", e.getMessage(), e);
         }
     }
 
     /**
-     * Construit le graphe d'appels en calculant les callers pour tous les programmes.
-     * Cette méthode doit être appelée après le chargement de tous les programmes.
-     * 
-     * Algorithme:
-     * 1. Parcourir tous les programmes et leurs callees
-     * 2. Construire une map inverse: callee -> list of callers
-     * 3. Mettre à jour chaque programme avec ses callers
+     * Construit l index JCL->Programme depuis le MetadataIndex (pas de chargement AST).
      */
-    public void buildCallGraph() {
+    private void buildJclProgramIndexFromMetadata() {
+        List<JCLFile> allJcls = metadataIndex.getAllJcls();
+        List<ProgramMetadata> allPrograms = metadataIndex.getAllPrograms();
+
+        for (ProgramMetadata program : allPrograms) {
+            List<String> callingJcls = new ArrayList<>();
+            List<String> callingPlans = new ArrayList<>();
+
+            for (JCLFile jcl : allJcls) {
+                if (jcl.getPrograms() != null && jcl.getPrograms().contains(program.getName())) {
+                    callingJcls.add(jcl.getName());
+                }
+                if (jcl.getSteps() != null) {
+                    for (JCLFile.JCLStep step : jcl.getSteps()) {
+                        if (program.getName().equalsIgnoreCase(step.getProgram()) || program.getName().equalsIgnoreCase(step.getName())) {
+                            Map<String, String> params = step.getParameters();
+                            if (params != null && params.containsKey("PLAN")) {
+                                String planName = params.get("PLAN");
+                                if (planName != null && !planName.isEmpty() && !callingPlans.contains(planName)) {
+                                    callingPlans.add(planName);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            program.setJcls(callingJcls);
+            program.setPlans(callingPlans);
+        }
+
+        logger.info("JCL->Program index built: {} programs indexed", allPrograms.size());
+    }
+
+    /**
+     * Construit le graphe des callers depuis le MetadataIndex (pas de chargement AST).
+     */
+    private void buildCallGraphFromMetadata() {
         logger.info("Building call graph...");
-        
-        // 1. Construire la map inverse (callee -> callers)
+
         Map<String, List<String>> callersMap = new HashMap<>();
-        
-        for (CBLFile program : allCbls.values()) {
-            String programName = program.getName();
-            List<String> callees = program.getCallees();
-            
-            if (callees != null && !callees.isEmpty()) {
-                for (String callee : callees) {
-                    callersMap.computeIfAbsent(callee, k -> new ArrayList<>()).add(programName);
+        for (ProgramMetadata program : metadataIndex.getAllPrograms()) {
+            if (program.getCallees() != null) {
+                for (String callee : program.getCallees()) {
+                    callersMap.computeIfAbsent(callee, k -> new ArrayList<>()).add(program.getName());
                 }
             }
         }
-        
-        // 2. Mettre à jour tous les programmes avec leurs callers
+
         int updatedCount = 0;
-        for (CBLFile program : allCbls.values()) {
-            String programName = program.getName();
-            List<String> callers = callersMap.get(programName);
-            
+        for (ProgramMetadata program : metadataIndex.getAllPrograms()) {
+            List<String> callers = callersMap.get(program.getName());
             if (callers != null && !callers.isEmpty()) {
-                // Trier pour cohérence
                 Collections.sort(callers);
                 program.setCallers(callers);
                 updatedCount++;
-                
-                logger.debug("Program {} has {} callers: {}", programName, callers.size(), callers);
             }
         }
-        
+
         logger.info("Call graph built. Updated {} programs with callers", updatedCount);
-        
-        // Log statistiques
-        int programsWithCallees = (int) allCbls.values().stream()
+        int programsWithCallees = (int) metadataIndex.getAllPrograms().stream()
                 .filter(p -> p.getCallees() != null && !p.getCallees().isEmpty())
                 .count();
-        int programsWithCallers = (int) allCbls.values().stream()
+        int programsWithCallers = (int) metadataIndex.getAllPrograms().stream()
                 .filter(p -> p.getCallers() != null && !p.getCallers().isEmpty())
                 .count();
-        
         logger.info("Call graph stats: {} programs have callees, {} programs have callers",
                 programsWithCallees, programsWithCallers);
     }
@@ -587,21 +562,23 @@ public class SimpleASTQueryService implements ASTQueryService {
      * Retourne les statistiques du cache
      */
     public String getCacheStats() {
-        return String.format("CBL Cache: %s, JCL Cache: %s, Copybook Cache: %s",
-                cblCache.getStats(), jclCache.getStats(), copybookCache.getStats());
+        return String.format("AST LRU Cache: %s | MetadataIndex: %s | JCL Cache: %s | Copybook Cache: %s",
+                astCache.getStats(), metadataIndex.getStats(), jclCache.getStats(), copybookCache.getStats());
     }
 
     /**
      * Vide tous les caches
      */
     public void clearCaches() {
+        astCache.clear();
         cblCache.clear();
         jclCache.clear();
         copybookCache.clear();
+        metadataIndex.clear();
         allCbls.clear();
         allJcls.clear();
         allCopybooks.clear();
-        logger.info("All caches cleared");
+        logger.info("All caches cleared (astCache + metadataIndex + legacy caches)");
     }
 
     /**
@@ -663,78 +640,39 @@ public class SimpleASTQueryService implements ASTQueryService {
         }
         
         logger.info("Found {} CBL programs", allPrograms.size());
-        buildJclProgramIndex(allPrograms);
+        buildJclProgramIndexFromMetadata();
         
         return allPrograms;
-    }
-    
-    /**
-     * Crée un index inversé pour lier chaque programme aux JCL qui l'appellent
-     */
-    private void buildJclProgramIndex(List<CBLFile> programs) {
-        logger.debug("Building JCL→Program index...");
-        
-        // 1. Charger tous les JCL si pas encore fait
-        List<JCLFile> allJcls = getAllJcl();
-        
-        // 2. Pour chaque programme, trouver les JCL qui le référencent
-        //    et les PLANs qui l'appellent (via bindplan entry_point matching program name)
-        for (CBLFile program : programs) {
-            List<String> callingJcls = new ArrayList<>();
-            List<String> callingPlans = new ArrayList<>();
-            
-            for (JCLFile jcl : allJcls) {
-                if (jcl.getPrograms() != null && jcl.getPrograms().contains(program.getName())) {
-                    callingJcls.add(jcl.getName());
-                }
-                
-                // Check bindplan steps: if entry_point matches this program, collect the plan name
-                if (jcl.getSteps() != null) {
-                    for (JCLFile.JCLStep step : jcl.getSteps()) {
-                        if ((program.getName().equalsIgnoreCase(step.getProgram()) || program.getName().equalsIgnoreCase(step.getName()))) {
-                            // This step executes our program - check if it has a plan parameter
-                            Map<String, String> params = step.getParameters();
-                            if (params != null && params.containsKey("PLAN")) {
-                                String planName = params.get("PLAN");
-                                if (planName != null && !planName.isEmpty() && !callingPlans.contains(planName)) {
-                                    callingPlans.add(planName);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // 3. Mettre à jour le programme avec ses JCL appelants et plans
-            program.setJcls(callingJcls);
-            program.setPlans(callingPlans);
-            logger.debug("Program {} is called by {} JCL(s): {}, {} plan(s): {}", 
-                program.getName(), callingJcls.size(), callingJcls, callingPlans.size(), callingPlans);
-        }
-        
-        logger.info("JCL→Program index built: {} programs indexed", programs.size());
     }
 
     @Override
     public List<JCLFile> getAllJcl() {
         logger.debug("getAllJcl called");
-        
+
+        // Utiliser le MetadataIndex si peuple
+        List<JCLFile> fromIndex = metadataIndex.getAllJcls();
+        if (!fromIndex.isEmpty()) {
+            logger.debug("Returning {} JCLs from metadata index", fromIndex.size());
+            return fromIndex;
+        }
+
+        // Fallback: charger depuis jcl-analysis.json
         Path basePath = config.getAstBasePath();
         Path jclAnalysisPath = basePath.resolve("jcl-analysis.json");
-        
-        // 1. Charger depuis jcl-analysis.json en priorité
         if (Files.exists(jclAnalysisPath)) {
             logger.info("Loading JCLs from jcl-analysis.json");
             JclAnalysisParser parser = new JclAnalysisParser();
             List<JCLFile> jclFiles = parser.parseJclAnalysis(jclAnalysisPath);
+            // Index them for next time
+            for (JCLFile jcl : jclFiles) {
+                metadataIndex.indexJcl(jcl);
+            }
             logger.info("Loaded {} JCLs from jcl-analysis.json", jclFiles.size());
             return jclFiles;
         }
-        
-        // 2. Fallback: scanner les fichiers AST
-        logger.info("jcl-analysis.json not found, falling back to AST scanning");
-        
-        return scanAstForJclFiles();
+
+        logger.info("jcl-analysis.json not found, no JCLs available");
+        return new ArrayList<>();
     }
 
     /**
@@ -785,64 +723,23 @@ public class SimpleASTQueryService implements ASTQueryService {
     @Override
     public List<Copybook> getAllCopybooks() {
         logger.debug("getAllCopybooks called");
-        
-        // Map pour accumuler les informations de chaque copybook
+
+        // Utiliser le MetadataIndex pour construire la liste des copybooks
+        // sans charger aucun AST complet
         Map<String, Copybook> copybookMap = new HashMap<>();
-        
-        // 1. Scanner tous les programmes pour extraire les métadonnées des copybooks depuis astData
-        List<CBLFile> allPrograms = getAllCbl();
-        
-        for (CBLFile program : allPrograms) {
-            // Extraire les métadonnées des copybooks depuis astData.copybooksMetadata
-            if (program.getAstData() != null) {
-                Object copybooksMetadataObj = program.getAstData().get("copybooksMetadata");
-                if (copybooksMetadataObj instanceof Map) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> copybooksMetadata = (Map<String, Object>) copybooksMetadataObj;
-                    
-                    for (Map.Entry<String, Object> entry : copybooksMetadata.entrySet()) {
-                        String copybookName = entry.getKey();
-                        Object metadataObj = entry.getValue();
-                        
-                        if (metadataObj instanceof Map) {
-                            @SuppressWarnings("unchecked")
-                            Map<String, Object> metadata = (Map<String, Object>) metadataObj;
-                            
-                            if (!copybookMap.containsKey(copybookName)) {
-                                // Extraire uri, size, lines depuis les métadonnées
-                                String uri = metadata.get("uri") != null ? metadata.get("uri").toString() : "";
-                                String path = normalizeUri(uri);
-                                int size = metadata.get("size") != null ? ((Number) metadata.get("size")).intValue() : 0;
-                                int lines = metadata.get("lines") != null ? ((Number) metadata.get("lines")).intValue() : 0;
-                                
-                                Copybook copybook = Copybook.builder()
-                                    .name(copybookName)
-                                    .path(path)
-                                    .size(size)
-                                    .lines(lines)
-                                    .parseStatus(ParseStatus.SUCCESS)
-                                    .lastModified(System.currentTimeMillis())
-                                    .usedByCobol(new ArrayList<>())
-                                    .usedByCopybook(new ArrayList<>())
-                                    .includes(new ArrayList<>())
-                                    .build();
-                                copybookMap.put(copybookName, copybook);
-                                logger.debug("Extracted copybook {} with path: {}", copybookName, path);
-                            }
-                            
-                            // Ajouter ce programme à la liste des usages
-                            copybookMap.get(copybookName).getUsedByCobol().add(program.getName());
-                        }
-                    }
-                }
-            }
-            
-            // Fallback : utiliser la liste simple des noms de copybooks si astData n'est pas disponible
-            if (program.getCopybooks() != null) {
-                for (String copybookName : program.getCopybooks()) {
-                    if (!copybookMap.containsKey(copybookName)) {
+
+        // 1. Depuis metadataIndex.copybookDetails (si rempli par preload)
+        for (Copybook cpy : metadataIndex.getAllCopybooks()) {
+            copybookMap.put(cpy.getName(), cpy);
+        }
+
+        // 2. Depuis les metadonnees des programmes (index inverse)
+        for (ProgramMetadata meta : metadataIndex.getAllPrograms()) {
+            if (meta.getCopybooks() != null) {
+                for (String cpyName : meta.getCopybooks()) {
+                    if (!copybookMap.containsKey(cpyName)) {
                         Copybook copybook = Copybook.builder()
-                            .name(copybookName)
+                            .name(cpyName)
                             .path("")
                             .size(0)
                             .lines(0)
@@ -852,18 +749,17 @@ public class SimpleASTQueryService implements ASTQueryService {
                             .usedByCopybook(new ArrayList<>())
                             .includes(new ArrayList<>())
                             .build();
-                        copybookMap.put(copybookName, copybook);
-                        logger.debug("Created minimal copybook {} (no metadata)", copybookName);
+                        copybookMap.put(cpyName, copybook);
                     }
-                    if (!copybookMap.get(copybookName).getUsedByCobol().contains(program.getName())) {
-                        copybookMap.get(copybookName).getUsedByCobol().add(program.getName());
+                    if (!copybookMap.get(cpyName).getUsedByCobol().contains(meta.getName())) {
+                        copybookMap.get(cpyName).getUsedByCobol().add(meta.getName());
                     }
                 }
             }
         }
-        
+
         List<Copybook> result = new ArrayList<>(copybookMap.values());
-        logger.info("Found {} unique copybooks across {} programs", result.size(), allPrograms.size());
+        logger.debug("Returning {} copybooks from metadata index", result.size());
         return result;
     }
     
@@ -889,53 +785,64 @@ public class SimpleASTQueryService implements ASTQueryService {
     @Override
     public List<Dataset> getAllDatasets() {
         logger.debug("getAllDatasets called");
-        
-        // Maps pour accumuler les usages de chaque dataset
+
+        // Utiliser l index inverse du MetadataIndex
+        Set<String> allDatasetNames = metadataIndex.getDatasetNames();
+        if (allDatasetNames != null && !allDatasetNames.isEmpty()) {
+            List<Dataset> result = new ArrayList<>();
+            for (String dsName : allDatasetNames) {
+                Set<String> cobolUsers = metadataIndex.getDatasetUsers(dsName);
+                // Trouver les JCL utilisant ce dataset
+                List<String> jclUsers = new ArrayList<>();
+                for (JCLFile jcl : metadataIndex.getAllJcls()) {
+                    if (jcl.getDatasets() != null && jcl.getDatasets().contains(dsName)) {
+                        jclUsers.add(jcl.getName());
+                    }
+                }
+                Dataset dataset = Dataset.builder()
+                    .name(dsName)
+                    .path("")
+                    .parseStatus(ParseStatus.SUCCESS)
+                    .lastModified(System.currentTimeMillis())
+                    .usedByJcl(jclUsers)
+                    .usedByCobol(new ArrayList<>(cobolUsers))
+                    .build();
+                result.add(dataset);
+            }
+            logger.debug("Returning {} datasets from metadata index", result.size());
+            return result;
+        }
+
+        // Fallback: collecter depuis JCL et programmes
         Map<String, List<String>> datasetUsagesByJcl = new HashMap<>();
         Map<String, List<String>> datasetUsagesByCobol = new HashMap<>();
-        
-        // 1. Collecter datasets depuis JCL
-        List<JCLFile> allJcls = getAllJcl();
-        for (JCLFile jcl : allJcls) {
+        List<JCLFile> jcls = getAllJcl();
+        for (JCLFile jcl : jcls) {
             if (jcl.getDatasets() != null) {
                 for (String datasetName : jcl.getDatasets()) {
-                    datasetUsagesByJcl.computeIfAbsent(datasetName, k -> new ArrayList<>())
-                        .add(jcl.getName());
+                    datasetUsagesByJcl.computeIfAbsent(datasetName, k -> new ArrayList<>()).add(jcl.getName());
                 }
             }
         }
-        
-        // 2. Collecter datasets depuis CBL
         List<CBLFile> allPrograms = getAllCbl();
         for (CBLFile program : allPrograms) {
             if (program.getDatasets() != null) {
                 for (String datasetName : program.getDatasets()) {
-                    datasetUsagesByCobol.computeIfAbsent(datasetName, k -> new ArrayList<>())
-                        .add(program.getName());
+                    datasetUsagesByCobol.computeIfAbsent(datasetName, k -> new ArrayList<>()).add(program.getName());
                 }
             }
         }
-        
-        // 3. Créer les objets Dataset avec toutes les données
-        Set<String> allDatasetNames = new HashSet<>();
-        allDatasetNames.addAll(datasetUsagesByJcl.keySet());
-        allDatasetNames.addAll(datasetUsagesByCobol.keySet());
-        
+        Set<String> allNames = new HashSet<>();
+        allNames.addAll(datasetUsagesByJcl.keySet());
+        allNames.addAll(datasetUsagesByCobol.keySet());
         List<Dataset> result = new ArrayList<>();
-        for (String datasetName : allDatasetNames) {
-            Dataset dataset = Dataset.builder()
-                .name(datasetName)
-                .path("")
-                .parseStatus(ParseStatus.SUCCESS)
+        for (String dsName : allNames) {
+            result.add(Dataset.builder().name(dsName).path("").parseStatus(ParseStatus.SUCCESS)
                 .lastModified(System.currentTimeMillis())
-                .usedByJcl(datasetUsagesByJcl.getOrDefault(datasetName, new ArrayList<>()))
-                .usedByCobol(datasetUsagesByCobol.getOrDefault(datasetName, new ArrayList<>()))
-                .build();
-            result.add(dataset);
+                .usedByJcl(datasetUsagesByJcl.getOrDefault(dsName, new ArrayList<>()))
+                .usedByCobol(datasetUsagesByCobol.getOrDefault(dsName, new ArrayList<>()))
+                .build());
         }
-        
-        logger.info("Found {} unique datasets across {} JCLs and {} programs", 
-            result.size(), allJcls.size(), allPrograms.size());
         return result;
     }
 }
