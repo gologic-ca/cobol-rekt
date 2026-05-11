@@ -4,6 +4,7 @@ import com.smojol.api.query.model.CBLFile;
 import com.smojol.api.query.model.Copybook;
 import com.smojol.api.query.model.Dataset;
 import com.smojol.api.query.model.JCLFile;
+import com.smojol.api.query.model.SearchResult;
 
 import java.util.List;
 import java.util.Optional;
@@ -138,4 +139,15 @@ public interface ASTQueryService {
      * @return List de tous les Datasets
      */
     List<Dataset> getAllDatasets();
+
+    /**
+     * Recherche full-text dans les ASTs COBOL (streaming, sans charger les ASTs en mémoire).
+     * Scanne les fichiers JSON sur disque en parallèle via Jackson streaming.
+     *
+     * @param query        le texte à rechercher (ex: "CUST-ID", "PERFORM VARYING", "EXEC SQL")
+     * @param caseSensitive true pour une recherche sensible à la casse
+     * @param maxResults   nombre maximum de programmes à retourner
+     * @return List des SearchResult (un par programme contenant au moins une occurrence)
+     */
+    List<SearchResult> searchText(String query, boolean caseSensitive, int maxResults);
 }

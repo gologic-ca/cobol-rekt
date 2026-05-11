@@ -65,6 +65,9 @@ public class SmojolRestAPI {
         // Get specific dataset
         app.get("/api/datasets/{name}", this::getDataset);
         
+        // Full-text search across all ASTs (streaming, memory-safe)
+        app.get("/api/search", this::searchText);
+        
         app.start(port);
         logger.info("✅ SmojolRestAPI started on port {}", port);
         logger.info("🌐 API available at: http://localhost:{}/api", port);
@@ -191,7 +194,38 @@ public class SmojolRestAPI {
             ctx.status(500).json(Map.of("error", e.getMessage()));
         }
     }
-    
+
+    private void searchText(Context ctx) {
+        String query = ctx.queryParam("q");
+        if (query == null || query.isBlank()) {
+            ctx.status(400).json(Map.of("error", "Query parameter 'q' is required"));
+            return;
+        }
+        boolean caseSensitive = "true".equalsIgnoreCase(ctx.queryParam("caseSensitive"));
+        int limit = 50;
+        String limitParam = ctx.queryParam("limit");
+        if (limitParam != null) {
+            try {
+                limit = Math.max(1, Math.min(200, Integer.parseInt(limitParam)));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+
+        try {
+            List<SearchResult> results = queryService.searchText(query, caseSensitive, limit);
+            Map<String, Object> response = new LinkedHashMap<>();
+            response.put("query", query);
+            response.put("caseSensitive", caseSensitive);
+            response.put("totalPrograms", results.size());
+            response.put("totalMatches", results.stream().mapToInt(SearchResult::getMatchCount).sum());
+            response.put("results", results);
+            ctx.json(response);
+        } catch (Exception e) {
+            logger.error("Error during text search for '{}': {}", query, e.getMessage(), e);
+            ctx.status(500).json(Map.of("error", e.getMessage()));
+        }
+    }
+
     // Conversion methods
     private Map<String, Object> cblToMap(CBLFile cbl) {
         Map<String, Object> map = new HashMap<>();

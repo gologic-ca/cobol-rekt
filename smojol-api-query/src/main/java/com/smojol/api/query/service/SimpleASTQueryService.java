@@ -4,6 +4,7 @@ import com.smojol.api.query.config.ASTConfig;
 import com.smojol.api.query.util.ASTLoader;
 import com.smojol.api.query.util.JclAnalysisParser;
 import com.smojol.api.query.model.CBLFile;
+import com.smojol.api.query.model.SearchResult;
 import com.smojol.api.query.util.LRUCache;
 import com.smojol.api.query.util.MetadataIndex;
 import com.smojol.api.query.model.ProgramMetadata;
@@ -14,12 +15,16 @@ import com.smojol.api.query.model.ParseStatus;
 import com.smojol.api.query.util.CopybookIncludesResolver;
 import com.smojol.api.query.util.CycleDetector;
 import com.smojol.api.query.util.SimpleCache;
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 
 
@@ -852,6 +857,174 @@ public class SimpleASTQueryService implements ASTQueryService {
                 .build());
         }
         return result;
+    }
+
+    // ==================== Full-text Search (streaming) ====================
+
+    private static final JsonFactory JSON_FACTORY = new JsonFactory();
+    private static final int SNIPPET_CONTEXT_LINES = 2;
+    private static final int MAX_SNIPPETS_PER_PROGRAM = 10;
+
+    @Override
+    public List<SearchResult> searchText(String query, boolean caseSensitive, int maxResults) {
+        logger.info("searchText: query='{}', caseSensitive={}, maxResults={}", query, caseSensitive, maxResults);
+        long startTime = System.currentTimeMillis();
+
+        if (query == null || query.isBlank()) {
+            return Collections.emptyList();
+        }
+
+        // Collecter les chemins des fichiers AST à scanner
+        List<Map.Entry<String, Path>> filesToScan = collectAstFiles();
+        logger.info("Scanning {} AST files for text search...", filesToScan.size());
+
+        // Recherche parallèle — chaque fichier est streamé indépendamment
+        List<SearchResult> results = Collections.synchronizedList(new ArrayList<>());
+
+        filesToScan.parallelStream().forEach(entry -> {
+            if (results.size() >= maxResults) return;
+
+            String programName = entry.getKey();
+            Path astFile = entry.getValue();
+
+            try {
+                SearchResult result = searchInFile(programName, astFile, query, caseSensitive);
+                if (result != null) {
+                    results.add(result);
+                }
+            } catch (Exception e) {
+                logger.warn("Error searching in {}: {}", programName, e.getMessage());
+            }
+        });
+
+        // Trier par nombre de matches (décroissant) et limiter
+        List<SearchResult> sorted = results.stream()
+                .sorted(Comparator.comparingInt(SearchResult::getMatchCount).reversed())
+                .limit(maxResults)
+                .collect(java.util.stream.Collectors.toList());
+
+        long elapsed = System.currentTimeMillis() - startTime;
+        logger.info("searchText completed in {}ms. Found {} programs matching '{}'", elapsed, sorted.size(), query);
+        return sorted;
+    }
+
+    /**
+     * Collecte tous les chemins de fichiers AST à scanner.
+     * Utilise les noms du MetadataIndex si disponible, sinon scan le disque.
+     */
+    private List<Map.Entry<String, Path>> collectAstFiles() {
+        List<Map.Entry<String, Path>> files = new ArrayList<>();
+
+        if (metadataIndex.getProgramCount() > 0) {
+            // Utiliser l'index — on connaît déjà tous les noms de programmes
+            for (ProgramMetadata meta : metadataIndex.getAllPrograms()) {
+                String filePath = loader.getFilePath(meta.getName());
+                Path path = Paths.get(filePath);
+                if (Files.exists(path)) {
+                    files.add(Map.entry(meta.getName(), path));
+                }
+            }
+        } else {
+            // Fallback: scanner le disque
+            Path basePath = config.getAstBasePath();
+            Path scanPath = basePath.resolve("report");
+            if (!Files.exists(scanPath)) scanPath = basePath;
+
+            try {
+                Files.walk(scanPath, 10)
+                        .filter(p -> p.getFileName().toString().endsWith("-aggregated.json"))
+                        .forEach(p -> {
+                            String name = p.getFileName().toString().replace("-aggregated.json", "");
+                            files.add(Map.entry(name, p));
+                        });
+            } catch (IOException e) {
+                logger.error("Error scanning for AST files: {}", e.getMessage());
+            }
+        }
+
+        return files;
+    }
+
+    /**
+     * Recherche dans un seul fichier AST via Jackson streaming.
+     * Lit uniquement le premier champ "text" (root node = source COBOL complète),
+     * puis cherche les occurrences du terme dans le texte source.
+     * Mémoire: O(taille du champ text root) — PAS l'arbre entier.
+     */
+    private SearchResult searchInFile(String programName, Path astFile, String query, boolean caseSensitive) throws IOException {
+        String sourceText = extractRootText(astFile);
+        if (sourceText == null || sourceText.isEmpty()) {
+            return null;
+        }
+
+        String searchIn = caseSensitive ? sourceText : sourceText.toLowerCase();
+        String searchFor = caseSensitive ? query : query.toLowerCase();
+
+        if (!searchIn.contains(searchFor)) {
+            return null;
+        }
+
+        // Trouver toutes les occurrences et extraire des snippets
+        String[] lines = sourceText.split("\n");
+        List<SearchResult.MatchSnippet> snippets = new ArrayList<>();
+        int matchCount = 0;
+
+        for (int i = 0; i < lines.length; i++) {
+            String lineToCheck = caseSensitive ? lines[i] : lines[i].toLowerCase();
+            if (lineToCheck.contains(searchFor)) {
+                matchCount++;
+                if (snippets.size() < MAX_SNIPPETS_PER_PROGRAM) {
+                    // Extraire le contexte (lignes avant/après)
+                    int start = Math.max(0, i - SNIPPET_CONTEXT_LINES);
+                    int end = Math.min(lines.length - 1, i + SNIPPET_CONTEXT_LINES);
+                    StringBuilder ctx = new StringBuilder();
+                    for (int j = start; j <= end; j++) {
+                        if (j > start) ctx.append("\n");
+                        ctx.append(String.format("%6d | %s", j + 1, lines[j]));
+                    }
+
+                    snippets.add(SearchResult.MatchSnippet.builder()
+                            .lineNumber(i + 1)
+                            .line(lines[i].trim())
+                            .context(ctx.toString())
+                            .build());
+                }
+            }
+        }
+
+        if (matchCount == 0) return null;
+
+        return SearchResult.builder()
+                .programName(programName)
+                .matchCount(matchCount)
+                .matches(snippets)
+                .build();
+    }
+
+    /**
+     * Extrait le champ "text" du noeud racine d'un fichier AST via Jackson streaming.
+     * Ne charge PAS l'arbre complet — lit juste les premiers tokens jusqu'au premier "text".
+     */
+    private String extractRootText(Path astFile) throws IOException {
+        try (JsonParser parser = JSON_FACTORY.createParser(astFile.toFile())) {
+            int depth = 0;
+            while (parser.nextToken() != null) {
+                JsonToken token = parser.currentToken();
+
+                if (token == JsonToken.START_OBJECT || token == JsonToken.START_ARRAY) {
+                    depth++;
+                } else if (token == JsonToken.END_OBJECT || token == JsonToken.END_ARRAY) {
+                    depth--;
+                }
+
+                // On cherche le "text" au depth 1 (root object uniquement)
+                if (depth == 1 && token == JsonToken.FIELD_NAME && "text".equals(parser.currentName())) {
+                    parser.nextToken();
+                    return parser.getValueAsString();
+                }
+            }
+        }
+        return null;
     }
 }
 
