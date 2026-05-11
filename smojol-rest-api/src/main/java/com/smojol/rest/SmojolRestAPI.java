@@ -84,7 +84,9 @@ public class SmojolRestAPI {
     
     private void getProgram(Context ctx) {
         String name = ctx.pathParam("name");
-        queryService.getCbl(name)
+        queryService.getAllCbl().stream()
+            .filter(p -> name.equals(p.getName()))
+            .findFirst()
             .map(this::cblToMap)
             .ifPresentOrElse(
                 ctx::json,

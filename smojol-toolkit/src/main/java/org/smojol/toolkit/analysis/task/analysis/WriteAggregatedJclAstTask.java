@@ -68,8 +68,8 @@ public class WriteAggregatedJclAstTask implements AnalysisTask {
             
             // Get program name from sourceConfig
             String programName = sourceConfig.programName();
-            if (programName.endsWith(".cbl")) {
-                programName = programName.substring(0, programName.lastIndexOf(".cbl"));
+            if (programName.endsWith(".CBL")) {
+                programName = programName.substring(0, programName.lastIndexOf(".CBL"));
             }
             
             // Build the serialisable AST
@@ -138,6 +138,7 @@ public class WriteAggregatedJclAstTask implements AnalysisTask {
         
         try {
             // Search for JCL file matching the program name
+            LOGGER.fine("Search for JCL with for program: " + programName);
             Path jclFile = findJclFile(jclDir, programName);
             
             if (jclFile == null) {
@@ -229,22 +230,22 @@ public class WriteAggregatedJclAstTask implements AnalysisTask {
             }
         }
         
-        // Fallback: use any .jcl file in the directory.
+        // Fallback: use any .jcl file only when the directory contains exactly one.
         // This supports the case where the orchestration script has already
         // matched JCL to COBOL via PGM= analysis and placed the correct
-        // JCL file(s) in a dedicated temp directory, even though the
+        // JCL file in a dedicated temp directory, even though the
         // JCL filename differs from the COBOL program name.
+        // When multiple files are present the directory is the full JCL corpus
+        // and picking an arbitrary file would be wrong.
         try (Stream<Path> files = Files.list(jclDir)) {
             List<Path> jclFiles = files
                     .filter(p -> p.getFileName().toString().toLowerCase().endsWith(".jcl"))
                     .toList();
-            if (!jclFiles.isEmpty()) {
-                if (jclFiles.size() == 1) {
-                    LOGGER.info("No name match for program " + programName + ", using single JCL file: " + jclFiles.get(0).getFileName());
-                } else {
-                    LOGGER.info("No name match for program " + programName + ", using first of " + jclFiles.size() + " JCL files: " + jclFiles.get(0).getFileName());
-                }
+            if (jclFiles.size() == 1) {
+                LOGGER.info("No name match for program " + programName + ", using single JCL file: " + jclFiles.get(0).getFileName());
                 return jclFiles.get(0);
+            } else if (jclFiles.size() > 1) {
+                LOGGER.fine("No name match for program " + programName + " and directory contains " + jclFiles.size() + " JCL files — skipping JCL context");
             }
         }
         

@@ -87,6 +87,14 @@ public class SimpleASTQueryService implements ASTQueryService {
             astCache.put(programName, c);
             if (metadataIndex.getProgram(programName).isEmpty()) {
                 metadataIndex.indexProgram(c);
+            } else {
+                // Enrichir avec les callers calculés par buildCallGraphFromMetadata()
+                // (le fichier JSON disque ne contient pas les callers — ils sont calculés en mémoire)
+                metadataIndex.getProgram(programName).ifPresent(meta -> {
+                    if (meta.getCallers() != null && !meta.getCallers().isEmpty()) {
+                        c.setCallers(meta.getCallers());
+                    }
+                });
             }
         });
 

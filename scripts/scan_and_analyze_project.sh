@@ -341,7 +341,7 @@ echo "  Scanning for copybook directories..."
 # Count total copybooks across all directories
 CPY_COUNT=0
 for cpy_dir in "${ALL_CPY_DIRS[@]}"; do
-    dir_count=$(find "$cpy_dir" -maxdepth 1 \( -iname "*.cpy" -o -iname "*.copy" -o \( -type f ! -name "*.*" -name "[A-Z]*" \) \) 2>/dev/null | wc -l)
+    dir_count=$(find "$cpy_dir" -maxdepth 1 \( -iname "*.CPY" -o -iname "*.COPY" -o \( -type f ! -name "*.*" -name "[A-Z]*" \) \) 2>/dev/null | wc -l)
     ((CPY_COUNT += dir_count))
 done
 
@@ -349,9 +349,10 @@ done
 if [[ ${#ALL_CPY_DIRS[@]} -gt 1 ]]; then
     AGGREGATED_CPY_DIR=$(mktemp -d)
     echo "  Found ${#ALL_CPY_DIRS[@]} copybook directories:"
+    
     for cpy_dir in "${ALL_CPY_DIRS[@]}"; do
         dir_name=$(basename "$cpy_dir")
-        dir_count=$(find "$cpy_dir" -maxdepth 1 \( -iname "*.cpy" -o -iname "*.copy" -o \( -type f ! -name "*.*" -name "[A-Z]*" \) \) 2>/dev/null | wc -l)
+        dir_count=$(find "$cpy_dir" -maxdepth 1 \( -iname "*.CPY" -o -iname "*.COPY" -o \( -type f ! -name "*.*" -name "[A-Z]*" \) \) 2>/dev/null | wc -l)
         echo "    • $dir_name/ ($dir_count files)"
         find "$cpy_dir" -maxdepth 1 \( -iname "*.cpy" -o -iname "*.copy" -o \( -type f ! -name "*.*" -name "[A-Z]*" \) \) -exec cp {} "$AGGREGATED_CPY_DIR/" \; 2>/dev/null
     done
@@ -473,7 +474,7 @@ if [[ -n "$PYTHON_CMD" ]] && [[ -f "$JCL_ANALYSIS_SCRIPT" ]]; then
     
     if [[ $PYTHON_EXIT -eq 0 ]] && [[ -s "$TEMP_OUTPUT" ]]; then
         cp "$TEMP_OUTPUT" "$MAPPINGS_FILE"
-        rm "$TEMP_OUTPUT"
+        #rm "$TEMP_OUTPUT"
         
         # Get count before any further processing
         MAPPED=$(grep -c '"program"' "$MAPPINGS_FILE" 2>/dev/null || echo "0")
@@ -562,6 +563,7 @@ if [[ -f "$JAR_PATH" ]] && command -v java &>/dev/null; then
     CPY_SEARCH_DIR="$CPY_DIR"
     
     # Use smojol-cli to generate proper ASTs with WRITE_AGGREGATED_JCL_AST
+    
     for cbl_file in "${!CBL_FILES_MAP[@]}"; do
         if [[ ! -f "$cbl_file" ]]; then continue; fi
         
@@ -619,6 +621,11 @@ if [[ -f "$JAR_PATH" ]] && command -v java &>/dev/null; then
                         full_jcl_path="$candidate"
                         break
                     fi
+                    # Also try with .jcl extension if the stem has no extension
+                    if [[ "$jcl_file_path" != *.* ]] && [[ -f "${candidate}.jcl" ]]; then
+                        full_jcl_path="${candidate}.jcl"
+                        break
+                    fi
                 done
                 
                 # If not found by direct path, search by basename across all dirs
@@ -629,6 +636,14 @@ if [[ -f "$JAR_PATH" ]] && command -v java &>/dev/null; then
                         if [[ -n "$found" ]]; then
                             full_jcl_path="$found"
                             break
+                        fi
+                        # Also try with .jcl extension if the stem has no extension
+                        if [[ "$jcl_basename" != *.* ]]; then
+                            found=$(find "$jcl_search_dir" -iname "${jcl_basename}.jcl" -type f 2>/dev/null | head -1)
+                            if [[ -n "$found" ]]; then
+                                full_jcl_path="$found"
+                                break
+                            fi
                         fi
                     done
                 fi
@@ -643,7 +658,14 @@ if [[ -f "$JAR_PATH" ]] && command -v java &>/dev/null; then
                 PROGRAM_JCL_DIR="$TEMP_PROGRAM_JCL_DIR"
             fi
         fi
-        
+
+        # If no JCL was found via mappings or module, use an empty temp dir so
+        # Java does not fall back to picking a random file from the full JCL dir.
+        if [[ $JCL_FOUND -eq 0 ]]; then
+            TEMP_PROGRAM_JCL_DIR=$(mktemp -d)
+            PROGRAM_JCL_DIR="$TEMP_PROGRAM_JCL_DIR"
+        fi
+
         # Step 3: Generate AST (with or without JCL)
         # Use the module's cbl directory for modular, or the file's directory for flat
         if [[ "$MODE" == "MODULAR" ]]; then
@@ -654,6 +676,13 @@ if [[ -f "$JAR_PATH" ]] && command -v java &>/dev/null; then
         fi
         
         ERROR_LOG=$(mktemp)
+
+        # Check if report already exists
+        report_dir="$REPORT_DIR/$cbl_name.cbl.report"
+        if [[ -d "$report_dir" ]]; then
+            echo "    [SKIP] Report already exists for $cbl_name ($report_dir)"
+        else
+        echo "    [EXECUTE JAVA] $cbl_file"
         if java -jar "$JAR_PATH" run \
             -c WRITE_AGGREGATED_JCL_AST \
             -j "$PROGRAM_JCL_DIR" \
@@ -726,7 +755,7 @@ EOF
             ((AST_COUNT++))
             rm "$ERROR_LOG"
         fi
-        
+     fi   
         # End timing for this file
         FILE_END=$(date +%s%N)
         FILE_DURATION_MS=$(( (FILE_END - FILE_START) / 1000000 ))
